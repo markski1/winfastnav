@@ -1,0 +1,37 @@
+module awesomeProject
+
+go 1.24.0
+
+toolchain go1.24.2
+
+require (
+	github.com/AllenDang/giu v0.14.0
+	github.com/getlantern/systray v1.2.2
+	github.com/lxn/win v0.0.0-20210218163916-a377121e959e
+	github.com/robotn/gohook v0.42.2
+	golang.org/x/sys v0.25.0
+)
+
+require (
+	github.com/AllenDang/cimgui-go v1.3.2-0.20250409185506-6b2ff1aa26b5 // indirect
+	github.com/AllenDang/go-findfont v0.0.0-20200702051237-9f180485aeb8 // indirect
+	github.com/faiface/mainthread v0.0.0-20171120011319-8b78f0a41ae3 // indirect
+	github.com/getlantern/context v0.0.0-20190109183933-c447772a6520 // indirect
+	github.com/getlantern/errors v0.0.0-20190325191628-abdb3e3e36f7 // indirect
+	github.com/getlantern/golog v0.0.0-20190830074920-4ef2e798c2d7 // indirect
+	github.com/getlantern/hex v0.0.0-20190417191902-c6586a6fe0b7 // indirect
+	github.com/getlantern/hidden v0.0.0-20190325191715-f02dbb02be55 // indirect
+	github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f // indirect
+	github.com/go-stack/stack v1.8.0 // indirect
+	github.com/gucio321/glm-go v0.0.0-20241029220517-e1b5a3e011c8 // indirect
+	github.com/mazznoer/csscolorparser v0.1.6 // indirect
+	github.com/napsy/go-css v1.0.0 // indirect
+	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
+	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8 // indirect
+	github.com/sahilm/fuzzy v0.1.1 // indirect
+	github.com/vcaesar/keycode v0.10.1 // indirect
+	golang.design/x/hotkey v0.4.1 // indirect
+	golang.design/x/mainthread v0.3.0 // indirect
+	golang.org/x/image v0.27.0 // indirect
+	gopkg.in/eapache/queue.v1 v1.1.0 // indirect
+)
