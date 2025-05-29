@@ -1,8 +1,14 @@
 package main
 
 import (
+	_ "embed"
 	"github.com/getlantern/systray"
 	"os"
+)
+
+var (
+	//go:embed assets/icon.ico
+	iconBytes []byte
 )
 
 func setupTray() {

@@ -6,35 +6,29 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+var (
+	instructionLabel *widget.Label = widget.NewLabel("ESC to hide.")
+	resultList       *widget.List
+)
+
 func setupUI() {
 	navWindow.Resize(fyne.NewSize(400, 300))
 	navWindow.SetFixedSize(true)
 	navWindow.Hide()
 
 	inputEntry = widget.NewEntry()
-	inputEntry.SetPlaceHolder("Enter navigation...")
+	inputEntry.SetPlaceHolder("Enter command")
 
-	inputEntry.OnSubmitted = func(text string) {
-		navWindow.Hide()
+	inputEntry.OnChanged = func(s string) {
+		updateResultList(s)
 	}
 
-	hideButton := widget.NewButton("Hide", func() {
-		navWindow.Hide()
-	})
+	widget.NewSeparator()
 
-	instructionLabel := widget.NewLabel("Alt+O to summon, ESC to hide.")
-	titleLabel := widget.NewLabel("winfastnav")
-	titleLabel.TextStyle.Bold = true
+	// Setup resultList empty
+	resultList = makeResultsList(nil)
 
-	content := container.NewVBox(
-		titleLabel,
-		inputEntry,
-		widget.NewSeparator(),
-		hideButton,
-		instructionLabel,
-	)
-
-	navWindow.SetContent(content)
+	updateContent()
 
 	// Don't close, hide
 	navWindow.SetCloseIntercept(func() {
@@ -42,11 +36,70 @@ func setupUI() {
 	})
 }
 
+func updateContent() {
+	topVbox := container.NewVBox(
+		inputEntry,
+		resultList,
+	)
+
+	bottomVbox := container.NewVBox(
+		instructionLabel,
+	)
+
+	content := container.NewBorder(
+		topVbox,
+		bottomVbox,
+		nil,
+		nil,
+	)
+
+	navWindow.SetContent(content)
+}
+
+func updateResultList(needle string) {
+	if len(needle) == 0 {
+		resultList = makeResultsList(nil)
+	} else {
+		apps := findAppResults(needle)
+		keys := make([]string, 0, len(apps))
+		for key := range apps {
+			keys = append(keys, key)
+		}
+
+		resultList = makeResultsList(keys)
+	}
+
+	updateContent()
+}
+
+func makeResultsList(keys []string) *widget.List {
+	if keys == nil {
+		keys = []string{}
+	}
+
+	newList := widget.NewList(
+		func() int {
+			return len(keys)
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("")
+		},
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			label := o.(*widget.Label)
+			label.SetText(keys[i])
+		},
+	)
+
+	return newList
+}
+
 func showWindow() {
 	fyne.Do(func() {
+		updateResultList("")
 		navWindow.Show()
+		inputEntry.SetText("")
 		navWindow.RequestFocus()
-		inputEntry.FocusGained()
+		navWindow.Canvas().Focus(inputEntry)
 	})
 }
 

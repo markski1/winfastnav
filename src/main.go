@@ -11,7 +11,6 @@
 package main
 
 import (
-	_ "embed"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/widget"
 	"github.com/robotn/gohook"
@@ -22,14 +21,12 @@ var (
 	navWindow    = navApp.NewWindow("winfastnav")
 	inputEntry   *widget.Entry
 	keyboardHook chan hook.Event
-
-	//go:embed assets/icon.ico
-	iconBytes []byte
 )
 
 func main() {
 	setupTray()
 	setupUI()
+	setupApps()
 	go listenHotkeys()
 	navApp.Run()
 }
