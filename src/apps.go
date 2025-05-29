@@ -2,41 +2,63 @@ package main
 
 import (
 	"golang.org/x/sys/windows/registry"
-	"log"
+	"sort"
 	"strings"
 )
 
+type App struct {
+	Name     string
+	ExecPath string
+}
+
 var (
-	appDict map[string]string
+	appDict []App
 )
 
 func setupApps() {
 	appDict = getInstalledApps()
 }
 
-func findAppResults(needle string) (results map[string]string) {
-	results = make(map[string]string)
+func findAppResults(needle string) []App {
+	var results []App
 
-	for keyName, valueName := range appDict {
-		if strings.Contains(strings.ToLower(keyName), strings.ToLower(needle)) {
-			results[keyName] = valueName
+	needle = strings.ToLower(needle)
+
+	for _, app := range appDict {
+		if strings.Contains(strings.ToLower(app.Name), needle) {
+			results = append(results, app)
 		}
 	}
 
-	return
+	return results
 }
 
-func getInstalledApps() map[string]string {
+func getInstalledApps() []App {
 	keys := []registry.Key{
 		registry.LOCAL_MACHINE,
 		registry.CURRENT_USER,
 	}
 	basePaths := []string{
 		`SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`,
-		`SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall`, // for 32-bit apps on 64-bit Windows
+		`SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall`,
 	}
 
-	apps := make(map[string]string)
+	// We only care about programs
+	skipRelease := map[string]struct{}{
+		"hotfix":          {},
+		"security update": {},
+		"service pack":    {},
+		"update":          {},
+	}
+
+	// We don't care about stuff with these substr either
+	skipIfSubstr := []string{
+		"speech recognition",
+		"redistributable",
+		"x64-based systems",
+	}
+
+	var apps []App
 
 	for _, keyRoot := range keys {
 		for _, basePath := range basePaths {
@@ -51,35 +73,63 @@ func getInstalledApps() map[string]string {
 			_ = k.Close()
 
 			if err != nil {
-				log.Print(err)
 				continue
 			}
 
+			// Go through each application subkey
 			for _, name := range names {
 				subKey, err := registry.OpenKey(keyRoot, basePath+`\`+name, registry.READ)
 				if err != nil {
 					continue
 				}
 
+				// Gotta have a name
 				displayName, _, err := subKey.GetStringValue("DisplayName")
 				if err != nil || strings.TrimSpace(displayName) == "" {
 					_ = subKey.Close()
 					continue
 				}
 
-				displayIcon, _, err := subKey.GetStringValue("DisplayIcon")
-				// DisplayIcon may contain ",0" at the end or other parameters, so clean it
-				if err == nil {
-					displayIcon = cleanExecutablePath(displayIcon)
-					apps[displayName] = displayIcon
-				} else {
-					apps[displayName] = ""
+				// Remove if they contain any substring from skipIfSubstr
+				if containsAny(strings.ToLower(displayName), skipIfSubstr) {
+					_ = subKey.Close()
 				}
+
+				// no system components
+				if sysVal, _, err := subKey.GetIntegerValue("SystemComponent"); err == nil && sysVal > 0 {
+					_ = subKey.Close()
+					continue
+				}
+
+				// skip releases in skipRelease
+				if rel, _, err := subKey.GetStringValue("ReleaseType"); err == nil {
+					if _, bad := skipRelease[strings.ToLower(rel)]; bad {
+						_ = subKey.Close()
+						continue
+					}
+				}
+
+				execPath, _, err := subKey.GetStringValue("DisplayIcon")
+
+				// Sometimes there's no exec path, we can do nothing with those!
+				if err != nil || len(execPath) < 1 {
+					_ = subKey.Close()
+					continue
+				}
+
+				// Sometimes there's a comma and extra params, clear those out
+				apps = append(apps, App{displayName, cleanExecutablePath(execPath)})
 
 				_ = subKey.Close()
 			}
 		}
 	}
+
+	// sort by name
+	sort.Slice(apps, func(i, j int) bool {
+		return strings.ToLower(apps[i].Name) < strings.ToLower(apps[j].Name)
+	})
+
 	return apps
 }
 

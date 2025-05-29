@@ -9,15 +9,16 @@ import (
 var (
 	instructionLabel *widget.Label = widget.NewLabel("ESC to hide.")
 	resultList       *widget.List
+	shown            bool = false
 )
 
 func setupUI() {
-	navWindow.Resize(fyne.NewSize(400, 300))
+	navWindow.Resize(fyne.NewSize(450, 275))
 	navWindow.SetFixedSize(true)
 	navWindow.Hide()
 
 	inputEntry = widget.NewEntry()
-	inputEntry.SetPlaceHolder("Enter command")
+	inputEntry.SetPlaceHolder("Start typing, ESC to hide.")
 
 	inputEntry.OnChanged = func(s string) {
 		updateResultList(s)
@@ -30,6 +31,8 @@ func setupUI() {
 
 	updateContent()
 
+	showWindow()
+
 	// Don't close, hide
 	navWindow.SetCloseIntercept(func() {
 		navWindow.Hide()
@@ -37,13 +40,15 @@ func setupUI() {
 }
 
 func updateContent() {
-	topVbox := container.NewVBox(
+	content := container.NewBorder(
 		inputEntry,
+		nil, nil, nil,
 		resultList,
 	)
 
-	bottomVbox := container.NewVBox(
-		instructionLabel,
+	navWindow.SetContent(content)
+}
+
 func showAbout() {
 	topVBox := container.NewVBox(
 		widget.NewLabel("winfastnav: fast windows navigation"),
@@ -74,8 +79,8 @@ func updateResultList(needle string) {
 	} else {
 		apps := findAppResults(needle)
 		keys := make([]string, 0, len(apps))
-		for key := range apps {
-			keys = append(keys, key)
+		for _, key := range apps {
+			keys = append(keys, key.Name)
 		}
 
 		resultList = makeResultsList(keys)
@@ -106,8 +111,8 @@ func makeResultsList(keys []string) *widget.List {
 }
 
 func showWindow() {
+	shown = true
 	fyne.Do(func() {
-		updateResultList("")
 		navWindow.Show()
 		inputEntry.SetText("")
 		navWindow.RequestFocus()
@@ -116,7 +121,9 @@ func showWindow() {
 }
 
 func hideWindow() {
+	shown = false
 	fyne.Do(func() {
+		updateResultList("")
 		navWindow.Hide()
 	})
 }

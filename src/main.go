@@ -3,9 +3,9 @@
 
 	- Still need an icon and not the example .ico file I found somewhere.
 	- Figure out best way to make window frameless.
-	- Figure out how to consistently focus textbox on summon.
-	- Events and the like.
 	- How to best divide this project?
+	- Keyboard selection and opening programs
+	- Find focused windows
 */
 
 package main
@@ -24,8 +24,8 @@ var (
 )
 
 func main() {
-	setupTray()
 	setupUI()
+	setupTray()
 	setupApps()
 	go listenHotkeys()
 	navApp.Run()
@@ -38,7 +38,9 @@ func listenHotkeys() {
 
 	// Register escape key to hide window when it's focused
 	hook.Register(hook.KeyDown, []string{"esc"}, func(e hook.Event) {
-		hideWindow()
+		if shown {
+			hideWindow()
+		}
 	})
 
 	keyboardHook = hook.Start()
