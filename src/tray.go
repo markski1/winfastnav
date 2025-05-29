@@ -18,9 +18,10 @@ func setupTray() {
 func onReady() {
 	systray.SetIcon(getIcon())
 	systray.SetTitle("winfastnav")
-	systray.SetTooltip("A fast Windows navigation tool")
+	systray.SetTooltip("winfastnav: fast windows navigation")
 
 	mToggle := systray.AddMenuItem("Show", "Show window")
+	mAbout := systray.AddMenuItem("About", "Show window")
 	mQuit := systray.AddMenuItem("Exit", "Exit program")
 
 	go func() {
@@ -28,6 +29,9 @@ func onReady() {
 			select {
 			case <-mToggle.ClickedCh:
 				showWindow()
+			case <-mAbout.ClickedCh:
+				showWindow()
+				showAbout()
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				navApp.Quit()

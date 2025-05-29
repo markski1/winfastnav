@@ -44,16 +44,28 @@ func updateContent() {
 
 	bottomVbox := container.NewVBox(
 		instructionLabel,
+func showAbout() {
+	topVBox := container.NewVBox(
+		widget.NewLabel("winfastnav: fast windows navigation"),
+	)
+
+	bottomVBox := container.NewVBox(
+		widget.NewLabel("markski.ar\ngithub.com/markski1"),
+		widget.NewButton("OK", func() {
+			updateContent()
+		}),
 	)
 
 	content := container.NewBorder(
-		topVbox,
-		bottomVbox,
+		topVBox,
+		bottomVBox,
 		nil,
 		nil,
 	)
 
-	navWindow.SetContent(content)
+	fyne.Do(func() {
+		navWindow.SetContent(content)
+	})
 }
 
 func updateResultList(needle string) {
