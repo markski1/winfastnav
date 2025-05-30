@@ -4,39 +4,50 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+	"log"
+	w "winfastnav/widgets"
 )
 
 var (
-	instructionLabel *widget.Label = widget.NewLabel("ESC to hide.")
-	resultList       *widget.List
-	shown            bool = false
+	navWindow      = navApp.NewWindow("winfastnav")
+	shown     bool = false
+
+	inputEntry *w.CustomEntry
+
+	resultList *widget.List
+	execPaths  []string
 )
 
 func setupUI() {
+	log.Printf("Preparing UI")
 	navWindow.Resize(fyne.NewSize(450, 275))
 	navWindow.SetFixedSize(true)
-	navWindow.Hide()
+	navWindow.CenterOnScreen()
+	resourceIcon := fyne.NewStaticResource("icon.ico", iconBytes)
+	navWindow.SetIcon(resourceIcon)
 
-	inputEntry = widget.NewEntry()
-	inputEntry.SetPlaceHolder("Start typing, ESC to hide.")
+	inputEntry = w.NewCustomEntry(func() {
+		fyne.Do(func() {
+			if len(inputEntry.Text) > 0 {
+				navWindow.Canvas().Focus(resultList)
+			}
+		})
+	})
+	inputEntry.SetPlaceHolder("Start typing, ESC to hide")
 
 	inputEntry.OnChanged = func(s string) {
 		updateResultList(s)
 	}
 
-	widget.NewSeparator()
-
-	// Setup resultList empty
-	resultList = makeResultsList(nil)
-
-	updateContent()
+	updateResultList("")
 
 	showWindow()
 
-	// Don't close, hide
+	// Don't close on X, hide instead.
 	navWindow.SetCloseIntercept(func() {
-		navWindow.Hide()
+		hideWindow()
 	})
+	log.Printf("Done")
 }
 
 func updateContent() {
@@ -75,39 +86,41 @@ func showAbout() {
 
 func updateResultList(needle string) {
 	if len(needle) == 0 {
-		resultList = makeResultsList(nil)
+		setResultListFor(nil)
 	} else {
 		apps := findAppResults(needle)
-		keys := make([]string, 0, len(apps))
-		for _, key := range apps {
-			keys = append(keys, key.Name)
-		}
-
-		resultList = makeResultsList(keys)
+		setResultListFor(apps)
 	}
 
 	updateContent()
 }
 
-func makeResultsList(keys []string) *widget.List {
-	if keys == nil {
-		keys = []string{}
+func setResultListFor(appList []App) {
+	if appList == nil {
+		appList = []App{}
 	}
 
-	newList := widget.NewList(
+	execPaths = make([]string, len(appList))
+	for i := range appList {
+		execPaths[i] = appList[i].ExecPath
+	}
+
+	resultList = widget.NewList(
 		func() int {
-			return len(keys)
+			return len(appList)
 		},
 		func() fyne.CanvasObject {
 			return widget.NewLabel("")
 		},
-		func(i widget.ListItemID, o fyne.CanvasObject) {
+		func(i int, o fyne.CanvasObject) {
 			label := o.(*widget.Label)
-			label.SetText(keys[i])
+			label.SetText(appList[i].Name)
 		},
 	)
 
-	return newList
+	resultList.OnSelected = func(id int) {
+		openProgram(id, execPaths)
+	}
 }
 
 func showWindow() {

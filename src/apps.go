@@ -2,11 +2,14 @@ package main
 
 import (
 	"golang.org/x/sys/windows/registry"
+	"log"
+	"os/exec"
 	"sort"
 	"strings"
 )
 
 type App struct {
+	Id       int
 	Name     string
 	ExecPath string
 }
@@ -16,7 +19,9 @@ var (
 )
 
 func setupApps() {
+	log.Printf("Obtaining Windows Applications")
 	appDict = getInstalledApps()
+	log.Printf("Done")
 }
 
 func findAppResults(needle string) []App {
@@ -59,6 +64,8 @@ func getInstalledApps() []App {
 	}
 
 	var apps []App
+
+	count := 1
 
 	for _, keyRoot := range keys {
 		for _, basePath := range basePaths {
@@ -118,8 +125,8 @@ func getInstalledApps() []App {
 				}
 
 				// Sometimes there's a comma and extra params, clear those out
-				apps = append(apps, App{displayName, cleanExecutablePath(execPath)})
-
+				apps = append(apps, App{count, displayName, cleanExecutablePath(execPath)})
+				count++
 				_ = subKey.Close()
 			}
 		}
@@ -131,6 +138,13 @@ func getInstalledApps() []App {
 	})
 
 	return apps
+}
+
+func openProgram(id int, execPaths []string) {
+	log.Printf("Opening program %d", id)
+	cmd := exec.Command(execPaths[id])
+	_ = cmd.Start()
+	hideWindow()
 }
 
 func cleanExecutablePath(path string) string {

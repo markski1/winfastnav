@@ -1,25 +1,21 @@
 /*
 	Outstanding issues:
 
-	- Still need an icon and not the example .ico file I found somewhere.
 	- Figure out best way to make window frameless.
-	- How to best divide this project?
 	- Keyboard selection and opening programs
-	- Find focused windows
+	- Find open windows
 */
 
 package main
 
 import (
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/widget"
 	"github.com/robotn/gohook"
+	"log"
 )
 
 var (
 	navApp       = app.New()
-	navWindow    = navApp.NewWindow("winfastnav")
-	inputEntry   *widget.Entry
 	keyboardHook chan hook.Event
 )
 
@@ -28,10 +24,12 @@ func main() {
 	setupTray()
 	setupApps()
 	go listenHotkeys()
+	log.Printf("BEGIN")
 	navApp.Run()
 }
 
 func listenHotkeys() {
+	log.Printf("Preparing hotkey listeners")
 	hook.Register(hook.KeyDown, []string{"alt", "o"}, func(e hook.Event) {
 		showWindow()
 	})
@@ -46,6 +44,7 @@ func listenHotkeys() {
 	keyboardHook = hook.Start()
 	defer hook.End()
 	<-hook.Process(keyboardHook)
+	log.Printf("Done")
 }
 
 func onExit() {

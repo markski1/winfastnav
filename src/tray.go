@@ -2,7 +2,9 @@ package main
 
 import (
 	_ "embed"
+	"fyne.io/fyne/v2"
 	"github.com/getlantern/systray"
+	"log"
 	"os"
 )
 
@@ -12,11 +14,12 @@ var (
 )
 
 func setupTray() {
+	log.Printf("Preparing tray")
 	go systray.Run(onReady, onExit)
 }
 
 func onReady() {
-	systray.SetIcon(getIcon())
+	systray.SetIcon(iconBytes)
 	systray.SetTitle("winfastnav")
 	systray.SetTooltip("winfastnav: fast windows navigation")
 
@@ -33,14 +36,13 @@ func onReady() {
 				showWindow()
 				showAbout()
 			case <-mQuit.ClickedCh:
+				fyne.Do(func() {
+					navApp.Quit()
+				})
 				systray.Quit()
-				navApp.Quit()
 				os.Exit(0)
 			}
 		}
 	}()
-}
-
-func getIcon() []byte {
-	return iconBytes
+	log.Printf("Done")
 }
