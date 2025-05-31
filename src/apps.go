@@ -6,16 +6,11 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	d "winfastnav/assets"
 )
 
-type App struct {
-	Id       int
-	Name     string
-	ExecPath string
-}
-
 var (
-	appDict []App
+	appDict []d.App
 )
 
 func setupApps() {
@@ -24,8 +19,8 @@ func setupApps() {
 	log.Printf("Done")
 }
 
-func findAppResults(needle string) []App {
-	var results []App
+func findAppResults(needle string) []d.App {
+	var results []d.App
 
 	needle = strings.ToLower(needle)
 
@@ -38,7 +33,7 @@ func findAppResults(needle string) []App {
 	return results
 }
 
-func getInstalledApps() []App {
+func getInstalledApps() []d.App {
 	keys := []registry.Key{
 		registry.LOCAL_MACHINE,
 		registry.CURRENT_USER,
@@ -63,7 +58,7 @@ func getInstalledApps() []App {
 		"x64-based systems",
 	}
 
-	var apps []App
+	var apps []d.App
 
 	count := 1
 
@@ -125,7 +120,7 @@ func getInstalledApps() []App {
 				}
 
 				// Sometimes there's a comma and extra params, clear those out
-				apps = append(apps, App{count, displayName, cleanExecutablePath(execPath)})
+				apps = append(apps, d.App{Id: count, Name: displayName, ExecPath: cleanExecutablePath(execPath)})
 				count++
 				_ = subKey.Close()
 			}
@@ -140,9 +135,8 @@ func getInstalledApps() []App {
 	return apps
 }
 
-func openProgram(id int, execPaths []string) {
-	log.Printf("Opening program %d", id)
-	cmd := exec.Command(execPaths[id])
+func openProgram(execPath string) {
+	cmd := exec.Command(execPath)
 	_ = cmd.Start()
 	hideWindow()
 }

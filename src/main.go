@@ -2,8 +2,8 @@
 	Outstanding issues:
 
 	- Figure out best way to make window frameless.
-	- Keyboard selection and opening programs
 	- Find open windows
+	- Move UI elements to a separate package so they can be cross referenced.
 */
 
 package main

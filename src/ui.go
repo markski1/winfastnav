@@ -5,6 +5,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"log"
+	d "winfastnav/assets"
 	w "winfastnav/widgets"
 )
 
@@ -14,7 +15,7 @@ var (
 
 	inputEntry *w.CustomEntry
 
-	resultList *widget.List
+	resultList *w.CustomList
 	execPaths  []string
 )
 
@@ -95,9 +96,9 @@ func updateResultList(needle string) {
 	updateContent()
 }
 
-func setResultListFor(appList []App) {
+func setResultListFor(appList []d.App) {
 	if appList == nil {
-		appList = []App{}
+		appList = []d.App{}
 	}
 
 	execPaths = make([]string, len(appList))
@@ -105,22 +106,9 @@ func setResultListFor(appList []App) {
 		execPaths[i] = appList[i].ExecPath
 	}
 
-	resultList = widget.NewList(
-		func() int {
-			return len(appList)
-		},
-		func() fyne.CanvasObject {
-			return widget.NewLabel("")
-		},
-		func(i int, o fyne.CanvasObject) {
-			label := o.(*widget.Label)
-			label.SetText(appList[i].Name)
-		},
-	)
-
-	resultList.OnSelected = func(id int) {
-		openProgram(id, execPaths)
-	}
+	resultList = w.NewCustomList(appList, func(idx int, app d.App) {
+		openProgram(app.ExecPath)
+	})
 }
 
 func showWindow() {

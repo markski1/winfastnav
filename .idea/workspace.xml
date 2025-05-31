@@ -5,11 +5,11 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="75c87852-f2f0-44d8-814c-622ee70f8978" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/src/widgets/custom_entry.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/assets/data.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/widgets/CustomList.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/apps.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/apps.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/tray.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/tray.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/ui.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/ui.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
