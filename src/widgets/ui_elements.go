@@ -1,12 +1,13 @@
 package widgets
 
 import (
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 )
 
 var (
 	NavApp     = app.New()
-	NavWindow  = NavApp.NewWindow("winfastnav")
+	NavWindow  fyne.Window
 	InputEntry *CustomEntry
 	ResultList *CustomList
 )

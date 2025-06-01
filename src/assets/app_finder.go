@@ -172,6 +172,10 @@ func scanStartMenu(startID int) []App {
 			if err != nil || target == "" {
 				return nil
 			}
+			// Only include executables
+			if !strings.Contains(strings.ToLower(target), ".exe") {
+				return nil
+			}
 			name := strings.TrimSuffix(de.Name(), ".lnk")
 			out = append(out, App{Id: id, Name: name, ExecPath: target})
 			id++

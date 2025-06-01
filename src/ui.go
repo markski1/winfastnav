@@ -15,7 +15,16 @@ var (
 
 func setupUI() {
 	log.Printf("Preparing UI")
-	w.NavWindow.Resize(fyne.NewSize(450, 275))
+
+	// Attempt to create a borderless window as a 'splash'.
+	if drv, ok := fyne.CurrentApp().Driver().(desktop.Driver); ok {
+		w.NavWindow = drv.CreateSplashWindow()
+		w.NavWindow.SetTitle("winfastnav")
+	} else {
+		w.NavWindow = w.NavApp.NewWindow("winfastnav")
+	}
+
+	w.NavWindow.Resize(fyne.NewSize(400, 225))
 	w.NavWindow.SetFixedSize(true)
 	w.NavWindow.CenterOnScreen()
 	resourceIcon := fyne.NewStaticResource("icon.ico", iconBytes)
