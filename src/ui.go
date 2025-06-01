@@ -10,33 +10,27 @@ import (
 )
 
 var (
-	navWindow      = navApp.NewWindow("winfastnav")
-	shown     bool = false
-
-	inputEntry *w.CustomEntry
-
-	resultList *w.CustomList
-	execPaths  []string
+	shown bool = false
 )
 
 func setupUI() {
 	log.Printf("Preparing UI")
-	navWindow.Resize(fyne.NewSize(450, 275))
-	navWindow.SetFixedSize(true)
-	navWindow.CenterOnScreen()
+	w.NavWindow.Resize(fyne.NewSize(450, 275))
+	w.NavWindow.SetFixedSize(true)
+	w.NavWindow.CenterOnScreen()
 	resourceIcon := fyne.NewStaticResource("icon.ico", iconBytes)
-	navWindow.SetIcon(resourceIcon)
+	w.NavWindow.SetIcon(resourceIcon)
 
-	inputEntry = w.NewCustomEntry(func() {
+	w.InputEntry = w.NewCustomEntry(func() {
 		fyne.Do(func() {
-			if len(inputEntry.Text) > 0 {
-				navWindow.Canvas().Focus(resultList)
+			if len(w.InputEntry.Text) > 0 {
+				w.NavWindow.Canvas().Focus(w.ResultList)
 			}
 		})
 	})
-	inputEntry.SetPlaceHolder("Start typing, ESC to hide")
+	w.InputEntry.SetPlaceHolder("Start typing, ESC to hide")
 
-	inputEntry.OnChanged = func(s string) {
+	w.InputEntry.OnChanged = func(s string) {
 		updateResultList(s)
 	}
 
@@ -45,7 +39,7 @@ func setupUI() {
 	showWindow()
 
 	// Don't close on X, hide instead.
-	navWindow.SetCloseIntercept(func() {
+	w.NavWindow.SetCloseIntercept(func() {
 		hideWindow()
 	})
 	log.Printf("Done")
@@ -53,12 +47,12 @@ func setupUI() {
 
 func updateContent() {
 	content := container.NewBorder(
-		inputEntry,
+		w.InputEntry,
 		nil, nil, nil,
-		resultList,
+		w.ResultList,
 	)
 
-	navWindow.SetContent(content)
+	w.NavWindow.SetContent(content)
 }
 
 func showAbout() {
@@ -81,7 +75,7 @@ func showAbout() {
 	)
 
 	fyne.Do(func() {
-		navWindow.SetContent(content)
+		w.NavWindow.SetContent(content)
 	})
 }
 
@@ -101,12 +95,7 @@ func setResultListFor(appList []d.App) {
 		appList = []d.App{}
 	}
 
-	execPaths = make([]string, len(appList))
-	for i := range appList {
-		execPaths[i] = appList[i].ExecPath
-	}
-
-	resultList = w.NewCustomList(appList, func(idx int, app d.App) {
+	w.ResultList = w.NewCustomList(appList, func(idx int, app d.App) {
 		openProgram(app.ExecPath)
 	})
 }
@@ -114,10 +103,10 @@ func setResultListFor(appList []d.App) {
 func showWindow() {
 	shown = true
 	fyne.Do(func() {
-		navWindow.Show()
-		inputEntry.SetText("")
-		navWindow.RequestFocus()
-		navWindow.Canvas().Focus(inputEntry)
+		w.NavWindow.Show()
+		w.InputEntry.SetText("")
+		w.NavWindow.RequestFocus()
+		w.NavWindow.Canvas().Focus(w.InputEntry)
 	})
 }
 
@@ -125,6 +114,6 @@ func hideWindow() {
 	shown = false
 	fyne.Do(func() {
 		updateResultList("")
-		navWindow.Hide()
+		w.NavWindow.Hide()
 	})
 }

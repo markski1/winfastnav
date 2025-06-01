@@ -90,6 +90,13 @@ func (sl *CustomList) moveSelection(delta int) {
 	if n == 0 {
 		return
 	}
+	// return focus to the text input if we go up from the top.
+	if delta < 0 && sl.selectedIndex == 0 {
+		sl.selectedIndex = -1
+		fyne.Do(func() {
+			NavWindow.Canvas().Focus(InputEntry)
+		})
+	}
 	// wrap around
 	sl.selectedIndex = (sl.selectedIndex + delta + n) % n
 	sl.Refresh()

@@ -1,4 +1,4 @@
-package data
+package assets
 
 type App struct {
 	Id       int

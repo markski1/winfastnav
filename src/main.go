@@ -3,19 +3,17 @@
 
 	- Figure out best way to make window frameless.
 	- Find open windows
-	- Move UI elements to a separate package so they can be cross referenced.
 */
 
 package main
 
 import (
-	"fyne.io/fyne/v2/app"
 	"github.com/robotn/gohook"
 	"log"
+	ui "winfastnav/widgets"
 )
 
 var (
-	navApp       = app.New()
 	keyboardHook chan hook.Event
 )
 
@@ -25,7 +23,7 @@ func main() {
 	setupApps()
 	go listenHotkeys()
 	log.Printf("BEGIN")
-	navApp.Run()
+	ui.NavApp.Run()
 }
 
 func listenHotkeys() {

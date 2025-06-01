@@ -6,6 +6,7 @@ import (
 	"github.com/getlantern/systray"
 	"log"
 	"os"
+	w "winfastnav/widgets"
 )
 
 var (
@@ -37,7 +38,7 @@ func onReady() {
 				showAbout()
 			case <-mQuit.ClickedCh:
 				fyne.Do(func() {
-					navApp.Quit()
+					w.NavApp.Quit()
 				})
 				systray.Quit()
 				os.Exit(0)

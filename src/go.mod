@@ -7,7 +7,9 @@ toolchain go1.24.2
 require (
 	fyne.io/fyne/v2 v2.6.1
 	github.com/getlantern/systray v1.2.2
+	github.com/go-ole/go-ole v1.2.6
 	github.com/robotn/gohook v0.42.2
+	golang.org/x/sys v0.30.0
 )
 
 require (
@@ -56,7 +58,6 @@ require (
 	go.uber.org/zap v1.19.1 // indirect
 	golang.org/x/image v0.27.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
-	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.25.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
