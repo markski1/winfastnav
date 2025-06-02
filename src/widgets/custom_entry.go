@@ -24,10 +24,19 @@ func NewCustomEntry(onDownArrow func()) *CustomEntry {
 }
 
 func (e *CustomEntry) TypedKey(key *fyne.KeyEvent) {
-	if key.Name == fyne.KeyDown && e.onDownArrow != nil {
-		e.onDownArrow()
-		return
+	if e.onDownArrow != nil {
+		if key.Name == fyne.KeyDown {
+			e.onDownArrow()
+			return
+		}
+
+		if key.Name == fyne.KeyReturn || key.Name == fyne.KeyEnter {
+			fyne.Do(func() {
+				NavWindow.Canvas().Focus(ResultList)
+			})
+		}
 	}
+
 	// Call the parent's TypedKey for normal behavior
 	e.Entry.TypedKey(key)
 }

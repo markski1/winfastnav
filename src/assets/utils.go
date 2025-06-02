@@ -1,6 +1,5 @@
 package assets
 
-import "strings"
 import (
 	"encoding/json"
 	"log"
@@ -15,6 +14,24 @@ func containsAny(s string, subs []string) bool {
 	}
 	return false
 }
+
+func UnblockAllApplications() {
+	ExecBlocklist = []string{}
+
+	jsonData, err := json.Marshal(ExecBlocklist)
+	if err != nil {
+		log.Printf("Error encoding list to JSON: %v", err)
+		return
+	}
+	err = setSetting("blocklist", string(jsonData))
+	if err != nil {
+		log.Printf("Error saving settings: %v", err)
+		return
+	}
+
+	AppList = GetInstalledApps()
+}
+
 func BlockApplication(application App) {
 	for i, app := range AppList {
 		if app == application {

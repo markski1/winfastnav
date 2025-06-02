@@ -3,10 +3,12 @@ package main
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
+	"github.com/getlantern/systray"
 	"log"
-	"runtime"
+	"os"
 	"runtime/debug"
 	d "winfastnav/assets"
 	w "winfastnav/widgets"
@@ -27,7 +29,7 @@ func setupUI() {
 		w.NavWindow = w.NavApp.NewWindow("winfastnav")
 	}
 
-	w.NavWindow.Resize(fyne.NewSize(400, 225))
+	w.NavWindow.Resize(fyne.NewSize(400, 250))
 	w.NavWindow.SetFixedSize(true)
 	w.NavWindow.CenterOnScreen()
 	resourceIcon := fyne.NewStaticResource("icon.ico", iconBytes)
@@ -61,10 +63,96 @@ func setupUI() {
 }
 
 func updateContent() {
-	content := container.NewBorder(
-		w.InputEntry,
-		nil, nil, nil,
-		w.ResultList,
+	bottomHBox := container.NewCenter(
+		container.NewHBox(
+			widget.NewButton("Help", func() {
+				showHelp()
+			}),
+			widget.NewButton("Settings", func() {
+				showSettings()
+			}),
+			widget.NewButton("Quit", func() {
+				fyne.Do(func() {
+					w.NavApp.Quit()
+				})
+				systray.Quit()
+				os.Exit(0)
+			}),
+		),
+	)
+
+	bottomHBox.Resize(fyne.NewSize(400, 20))
+
+	content := container.NewPadded(
+		container.NewBorder(
+			w.InputEntry,
+			bottomHBox,
+			nil, nil,
+			w.ResultList,
+		),
+	)
+
+	w.NavWindow.SetContent(content)
+}
+
+func showSettings() {
+	topVBox := container.NewVBox(
+		widget.NewLabel("Settings"),
+		widget.NewButton("Clear Blocklist", func() {
+			d.UnblockAllApplications()
+			dialog.NewInformation("Blocklist cleared", "All apps have been unblocked", w.NavWindow).Show()
+		}),
+	)
+
+	bottomVBox := container.NewVBox(
+		widget.NewButton("OK", func() {
+			updateContent()
+		}),
+	)
+
+	content := container.NewPadded(
+		container.NewBorder(
+			topVBox,
+			bottomVBox,
+			nil,
+			nil,
+		),
+	)
+
+	w.NavWindow.SetContent(content)
+}
+
+func showHelp() {
+	topVBox := container.NewVBox(
+		widget.NewLabel(
+			"Shortcuts:\n" +
+				"ALT + O: Summon\n" +
+				"ESC: Hide\n" +
+				"Delete: Hide app",
+		),
+	)
+
+	midVBox := container.NewVBox(
+		widget.NewLabel(
+			"Prefixes:\n" +
+				"@: Internet search\n",
+		),
+	)
+
+	bottomVBox := container.NewVBox(
+		widget.NewButton("OK", func() {
+			updateContent()
+		}),
+	)
+
+	content := container.NewPadded(
+		container.NewBorder(
+			topVBox,
+			bottomVBox,
+			nil,
+			nil,
+			midVBox,
+		),
 	)
 
 	w.NavWindow.SetContent(content)
@@ -82,16 +170,16 @@ func showAbout() {
 		}),
 	)
 
-	content := container.NewBorder(
-		topVBox,
-		bottomVBox,
-		nil,
-		nil,
+	content := container.NewPadded(
+		container.NewBorder(
+			topVBox,
+			bottomVBox,
+			nil,
+			nil,
+		),
 	)
 
-	fyne.Do(func() {
-		w.NavWindow.SetContent(content)
-	})
+	w.NavWindow.SetContent(content)
 }
 
 func updateResultList(needle string) {
@@ -129,6 +217,5 @@ func hideWindow() {
 		updateResultList("")
 		w.NavWindow.Hide()
 	})
-	runtime.GC()
 	debug.FreeOSMemory()
 }
