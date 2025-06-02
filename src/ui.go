@@ -3,8 +3,11 @@ package main
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	"log"
+	"runtime"
+	"runtime/debug"
 	d "winfastnav/assets"
 	w "winfastnav/widgets"
 )
@@ -43,8 +46,11 @@ func setupUI() {
 		updateResultList(s)
 	}
 
-	updateResultList("")
+	w.ResultList = w.NewCustomList([]d.App{}, func(idx int, app d.App) {
+		openProgram(app.ExecPath)
+	})
 
+	updateContent()
 	showWindow()
 
 	// Don't close on X, hide instead.
@@ -104,9 +110,7 @@ func setResultListFor(appList []d.App) {
 		appList = []d.App{}
 	}
 
-	w.ResultList = w.NewCustomList(appList, func(idx int, app d.App) {
-		openProgram(app.ExecPath)
-	})
+	w.ResultList.UpdateItems(appList)
 }
 
 func showWindow() {
@@ -125,4 +129,6 @@ func hideWindow() {
 		updateResultList("")
 		w.NavWindow.Hide()
 	})
+	runtime.GC()
+	debug.FreeOSMemory()
 }

@@ -25,6 +25,9 @@ func findAppResults(needle string) []d.App {
 	for _, app := range appDict {
 		if strings.Contains(strings.ToLower(app.Name), needle) || strings.Contains(strings.ToLower(app.ExecPath), needle) {
 			results = append(results, app)
+			if len(results) >= 20 {
+				break
+			}
 		}
 	}
 
