@@ -1,15 +1,9 @@
-/*
-	Outstanding issues:
-
-	- Figure out best way to make window frameless.
-	- Find open windows
-*/
-
 package main
 
 import (
 	"github.com/robotn/gohook"
 	"log"
+	d "winfastnav/assets"
 	ui "winfastnav/widgets"
 )
 
@@ -18,6 +12,7 @@ var (
 )
 
 func main() {
+	d.SetupSettings()
 	setupUI()
 	setupTray()
 	setupApps()

@@ -6,7 +6,6 @@ import (
 	"github.com/getlantern/systray"
 	"log"
 	"os"
-	"time"
 	w "winfastnav/widgets"
 )
 
@@ -44,7 +43,6 @@ func onReady() {
 				systray.Quit()
 				os.Exit(0)
 			}
-			time.Sleep(1000 * time.Millisecond)
 		}
 	}()
 	log.Printf("Done")

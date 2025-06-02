@@ -17,6 +17,7 @@ package widgets
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	d "winfastnav/assets"
 )
@@ -107,6 +108,18 @@ func (sl *CustomList) TypedKey(event *fyne.KeyEvent) {
 		sl.moveSelection(1)
 	case fyne.KeyReturn, fyne.KeyEnter:
 		sl.activateSelection()
+	case fyne.KeyDelete:
+		itemName := sl.Items[sl.selectedIndex].Name
+		dlg := dialog.NewConfirm("Hide app",
+			"Are you sure you want to hide \""+itemName+"\"?",
+			func(confirmed bool) {
+				if confirmed {
+					d.BlockApplication(sl.Items[sl.selectedIndex])
+					NavWindow.Canvas().Focus(InputEntry)
+					InputEntry.SetText("")
+				}
+			}, fyne.CurrentApp().Driver().AllWindows()[0])
+		dlg.Show()
 	}
 }
 

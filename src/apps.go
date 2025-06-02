@@ -7,13 +7,9 @@ import (
 	d "winfastnav/assets"
 )
 
-var (
-	appDict []d.App
-)
-
 func setupApps() {
 	log.Printf("Obtaining Windows Applications")
-	appDict = d.GetInstalledApps()
+	d.AppList = d.GetInstalledApps()
 	log.Printf("Done")
 }
 
@@ -22,7 +18,7 @@ func findAppResults(needle string) []d.App {
 
 	needle = strings.ToLower(needle)
 
-	for _, app := range appDict {
+	for _, app := range d.AppList {
 		if strings.Contains(strings.ToLower(app.Name), needle) || strings.Contains(strings.ToLower(app.ExecPath), needle) {
 			results = append(results, app)
 			if len(results) >= 20 {

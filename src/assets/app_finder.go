@@ -38,8 +38,6 @@ func GetInstalledApps() []App {
 
 	var apps []App
 
-	count := 1
-
 	for _, keyRoot := range keys {
 		for _, basePath := range basePaths {
 			k, err := registry.OpenKey(keyRoot, basePath, registry.READ)
@@ -98,14 +96,13 @@ func GetInstalledApps() []App {
 				}
 
 				// Sometimes there's a comma and extra params, clear those out
-				apps = append(apps, App{Id: count, Name: displayName, ExecPath: cleanExecutablePath(execPath)})
-				count++
+				apps = append(apps, App{Name: displayName, ExecPath: cleanExecutablePath(execPath)})
 				_ = subKey.Close()
 			}
 		}
 	}
 
-	apps = append(apps, scanStartMenu(len(apps))...)
+	apps = scanStartMenu(apps)
 
 	// sort by name
 	sort.Slice(apps, func(i, j int) bool {
@@ -155,13 +152,12 @@ func resolveShortcut(path string) (string, error) {
 	return tp.ToString(), nil
 }
 
-func scanStartMenu(startID int) []App {
+// Search for programs by grabbing .lnk's off the start menu
+func scanStartMenu(currentAppList []App) []App {
 	dirs := []string{
 		filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
 		filepath.Join(os.Getenv("PROGRAMDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
 	}
-	var out []App
-	id := startID + 1
 
 	for _, base := range dirs {
 		err := filepath.WalkDir(base, func(p string, de fs.DirEntry, err error) error {
@@ -176,14 +172,28 @@ func scanStartMenu(startID int) []App {
 			if !strings.Contains(strings.ToLower(target), ".exe") {
 				return nil
 			}
+
+			// No repeats
+			for _, app := range currentAppList {
+				if strings.EqualFold(app.ExecPath, target) {
+					return nil
+				}
+			}
+
+			// Blacklist
+			for _, block := range ExecBlocklist {
+				if strings.Contains(strings.ToLower(target), strings.ToLower(block)) {
+					return nil
+				}
+			}
+
 			name := strings.TrimSuffix(de.Name(), ".lnk")
-			out = append(out, App{Id: id, Name: name, ExecPath: target})
-			id++
+			currentAppList = append(currentAppList, App{Name: name, ExecPath: target})
 			return nil
 		})
 		if err != nil {
 			return nil
 		}
 	}
-	return out
+	return currentAppList
 }
