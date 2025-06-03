@@ -10,6 +10,7 @@ package widgets
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
+	d "winfastnav/assets"
 )
 
 type CustomEntry struct {
@@ -32,6 +33,11 @@ func (e *CustomEntry) TypedKey(key *fyne.KeyEvent) {
 
 		if key.Name == fyne.KeyReturn || key.Name == fyne.KeyEnter {
 			fyne.Do(func() {
+				if len(InputEntry.Text) > 0 && InputEntry.Text[0] == '@' {
+					d.OpenURI(d.SearchString + InputEntry.Text[1:])
+					NavWindow.Hide()
+					return
+				}
 				NavWindow.Canvas().Focus(ResultList)
 			})
 		}

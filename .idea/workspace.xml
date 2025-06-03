@@ -5,18 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="75c87852-f2f0-44d8-814c-622ee70f8978" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/src/assets/settings.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/apps.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/apps.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/assets/app_finder.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/assets/app_finder.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/assets/data.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/assets/data.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/assets/settings.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/assets/settings.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/assets/utils.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/assets/utils.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/tray.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/tray.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/ui.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/ui.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/widgets/custom_entry.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/widgets/custom_entry.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/widgets/custom_list.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/widgets/custom_list.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

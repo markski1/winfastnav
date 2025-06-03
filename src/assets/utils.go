@@ -3,6 +3,7 @@ package assets
 import (
 	"encoding/json"
 	"log"
+	"os/exec"
 	"strings"
 )
 
@@ -23,7 +24,7 @@ func UnblockAllApplications() {
 		log.Printf("Error encoding list to JSON: %v", err)
 		return
 	}
-	err = setSetting("blocklist", string(jsonData))
+	err = SetSetting("blocklist", string(jsonData))
 	if err != nil {
 		log.Printf("Error saving settings: %v", err)
 		return
@@ -46,9 +47,17 @@ func BlockApplication(application App) {
 		log.Printf("Error encoding list to JSON: %v", err)
 		return
 	}
-	err = setSetting("blocklist", string(jsonData))
+	err = SetSetting("blocklist", string(jsonData))
 	if err != nil {
 		log.Printf("Error saving settings: %v", err)
 		return
+	}
+}
+
+func OpenURI(uri string) {
+	cmd := exec.Command("cmd", "/c", "start", uri)
+	err := cmd.Run()
+	if err != nil {
+		log.Printf("Failed to open URI: %v", err)
 	}
 }

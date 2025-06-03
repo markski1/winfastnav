@@ -12,10 +12,10 @@ import (
 type Settings map[string]string
 
 func SetupSettings() {
-	unparsedList, err := getSetting("blocklist")
-	if err != nil {
+	unparsedList, err := GetSetting("blocklist")
+	if err != nil || len(unparsedList) == 0 {
 		// initialize with empty list string
-		err = setSetting("blocklist", "[]")
+		err = SetSetting("blocklist", "[]")
 		if err != nil {
 			log.Printf("Error setting blocklist: %v", err)
 			return
@@ -31,6 +31,17 @@ func SetupSettings() {
 	}
 
 	ExecBlocklist = blocklist
+
+	SearchString, err = GetSetting("searchstring")
+	if err != nil || len(SearchString) == 0 {
+		// initialize with empty list string
+		err = SetSetting("searchstring", "https://duckduckgo.com/?q=")
+		if err != nil {
+			log.Printf("Error setting searchstring: %v", err)
+			return
+		}
+		SearchString = "https://duckduckgo.com/?q="
+	}
 }
 
 func getSettingsFilePath() (string, error) {
@@ -109,8 +120,8 @@ func writeSettings(s Settings) error {
 	return nil
 }
 
-// setSetting stores a key-value pair in the settings and persists it to file.
-func setSetting(key, value string) error {
+// SetSetting stores a key-value pair in the settings and persists it to file.
+func SetSetting(key, value string) error {
 	settings, err := readSettings()
 	if err != nil {
 		return err
@@ -121,9 +132,9 @@ func setSetting(key, value string) error {
 	return writeSettings(settings)
 }
 
-// getSetting retrieves the value for a given key from settings.
+// GetSetting retrieves the value for a given key from settings.
 // Returns (value, true) if found, or ("", false) if the key does not exist.
-func getSetting(key string) (string, error) {
+func GetSetting(key string) (string, error) {
 	settings, err := readSettings()
 
 	if err != nil {

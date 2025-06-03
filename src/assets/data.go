@@ -8,4 +8,5 @@ type App struct {
 var (
 	AppList       []App
 	ExecBlocklist []string
+	SearchString  string
 )

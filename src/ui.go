@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
@@ -96,12 +97,32 @@ func updateContent() {
 }
 
 func showSettings() {
-	topVBox := container.NewVBox(
-		widget.NewLabel("Settings"),
+	searchStringEntry := widget.NewEntry()
+	searchStringEntry.SetText(d.SearchString)
+	searchStringEntry.OnChanged = func(s string) {
+		d.SearchString = s
+		_ = d.SetSetting("searchstring", s)
+	}
+
+	searchStringBox := container.NewVBox(
+		widget.NewLabel("Search string"),
+		searchStringEntry,
+	)
+
+	searchStringBox.Resize(fyne.NewSize(400, 20))
+
+	blocklistBox := container.NewHBox(
+		widget.NewLabel(fmt.Sprintf("Blocklist (%d)", len(d.ExecBlocklist))),
 		widget.NewButton("Clear Blocklist", func() {
 			d.UnblockAllApplications()
 			dialog.NewInformation("Blocklist cleared", "All apps have been unblocked", w.NavWindow).Show()
 		}),
+	)
+
+	topVBox := container.NewVBox(
+		searchStringBox,
+		widget.NewSeparator(),
+		blocklistBox,
 	)
 
 	bottomVBox := container.NewVBox(
