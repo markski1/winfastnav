@@ -1,4 +1,4 @@
-package assets
+package settings
 
 import (
 	"encoding/json"
@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	g "winfastnav/internal/globals"
 )
 
 type Settings map[string]string
@@ -30,17 +31,17 @@ func SetupSettings() {
 		return
 	}
 
-	ExecBlocklist = blocklist
+	g.ExecBlocklist = blocklist
 
-	SearchString, err = GetSetting("searchstring")
-	if err != nil || len(SearchString) == 0 {
+	g.SearchString, err = GetSetting("searchstring")
+	if err != nil || len(g.SearchString) == 0 {
 		// initialize with empty list string
 		err = SetSetting("searchstring", "https://duckduckgo.com/?q=")
 		if err != nil {
 			log.Printf("Error setting searchstring: %v", err)
 			return
 		}
-		SearchString = "https://duckduckgo.com/?q="
+		g.SearchString = "https://duckduckgo.com/?q="
 	}
 }
 

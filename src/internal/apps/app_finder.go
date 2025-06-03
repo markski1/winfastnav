@@ -1,4 +1,4 @@
-package assets
+package apps
 
 import (
 	"github.com/go-ole/go-ole"
@@ -9,9 +9,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	g "winfastnav/internal/globals"
 )
 
-func GetInstalledApps() []App {
+func GetInstalledApps() []g.App {
 	keys := []registry.Key{
 		registry.LOCAL_MACHINE,
 		registry.CURRENT_USER,
@@ -36,7 +37,7 @@ func GetInstalledApps() []App {
 		"x64-based systems",
 	}
 
-	var apps []App
+	var apps []g.App
 
 	for _, keyRoot := range keys {
 		for _, basePath := range basePaths {
@@ -69,7 +70,7 @@ func GetInstalledApps() []App {
 				}
 
 				// Remove if they contain any substring from skipIfSubstr
-				if containsAny(strings.ToLower(displayName), skipIfSubstr) {
+				if ContainsAny(strings.ToLower(displayName), skipIfSubstr) {
 					_ = subKey.Close()
 				}
 
@@ -96,7 +97,7 @@ func GetInstalledApps() []App {
 				}
 
 				// Sometimes there's a comma and extra params, clear those out
-				apps = append(apps, App{Name: displayName, ExecPath: cleanExecutablePath(execPath)})
+				apps = append(apps, g.App{Name: displayName, ExecPath: cleanExecutablePath(execPath)})
 				_ = subKey.Close()
 			}
 		}
@@ -153,7 +154,7 @@ func resolveShortcut(path string) (string, error) {
 }
 
 // Search for programs by grabbing .lnk's off the start menu
-func scanStartMenu(currentAppList []App) []App {
+func scanStartMenu(currentAppList []g.App) []g.App {
 	dirs := []string{
 		filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
 		filepath.Join(os.Getenv("PROGRAMDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
@@ -181,14 +182,14 @@ func scanStartMenu(currentAppList []App) []App {
 			}
 
 			// Blacklist
-			for _, block := range ExecBlocklist {
+			for _, block := range g.ExecBlocklist {
 				if strings.Contains(strings.ToLower(target), strings.ToLower(block)) {
 					return nil
 				}
 			}
 
 			name := strings.TrimSuffix(de.Name(), ".lnk")
-			currentAppList = append(currentAppList, App{Name: name, ExecPath: target})
+			currentAppList = append(currentAppList, g.App{Name: name, ExecPath: target})
 			return nil
 		})
 		if err != nil {

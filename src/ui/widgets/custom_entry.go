@@ -10,7 +10,9 @@ package widgets
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
-	d "winfastnav/assets"
+	"log"
+	"os/exec"
+	g "winfastnav/internal/globals"
 )
 
 type CustomEntry struct {
@@ -33,16 +35,23 @@ func (e *CustomEntry) TypedKey(key *fyne.KeyEvent) {
 
 		if key.Name == fyne.KeyReturn || key.Name == fyne.KeyEnter {
 			fyne.Do(func() {
-				if len(InputEntry.Text) > 0 && InputEntry.Text[0] == '@' {
-					d.OpenURI(d.SearchString + InputEntry.Text[1:])
-					NavWindow.Hide()
+				if len(e.Text) > 0 && e.Text[0] == '@' {
+					openURI(g.SearchString + e.Text[1:])
+					g.NavWindow.Hide()
 					return
 				}
-				NavWindow.Canvas().Focus(ResultList)
 			})
 		}
 	}
 
 	// Call the parent's TypedKey for normal behavior
 	e.Entry.TypedKey(key)
+}
+
+func openURI(uri string) {
+	cmd := exec.Command("cmd", "/c", "start", uri)
+	err := cmd.Run()
+	if err != nil {
+		log.Printf("Failed to open URI: %v", err)
+	}
 }

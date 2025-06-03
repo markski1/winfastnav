@@ -1,24 +1,24 @@
-package main
+package apps
 
 import (
 	"log"
 	"os/exec"
 	"strings"
-	d "winfastnav/assets"
+	g "winfastnav/internal/globals"
 )
 
-func setupApps() {
+func SetupApps() {
 	log.Printf("Obtaining Windows Applications")
-	d.AppList = d.GetInstalledApps()
+	g.AppList = GetInstalledApps()
 	log.Printf("Done")
 }
 
-func findAppResults(needle string) []d.App {
-	var results []d.App
+func FindAppResults(needle string) []g.App {
+	var results []g.App
 
 	needle = strings.ToLower(needle)
 
-	for _, app := range d.AppList {
+	for _, app := range g.AppList {
 		if strings.Contains(strings.ToLower(app.Name), needle) || strings.Contains(strings.ToLower(app.ExecPath), needle) {
 			results = append(results, app)
 			if len(results) >= 20 {
@@ -30,8 +30,7 @@ func findAppResults(needle string) []d.App {
 	return results
 }
 
-func openProgram(execPath string) {
+func OpenProgram(execPath string) {
 	cmd := exec.Command(execPath)
 	_ = cmd.Start()
-	hideWindow()
 }

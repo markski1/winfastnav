@@ -1,6 +1,7 @@
-package main
+package ui
 
 import (
+	_ "embed"
 	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -11,54 +12,61 @@ import (
 	"log"
 	"os"
 	"runtime/debug"
-	d "winfastnav/assets"
-	w "winfastnav/widgets"
+	"winfastnav/internal/apps"
+	g "winfastnav/internal/globals"
+	"winfastnav/internal/settings"
+	w "winfastnav/ui/widgets"
 )
 
 var (
-	shown bool = false
+	InputEntry *w.CustomEntry
+	ResultList *w.CustomList
 )
 
-func setupUI() {
+func SetupUI() {
 	log.Printf("Preparing UI")
 
 	// Attempt to create a borderless window as a 'splash'.
 	if drv, ok := fyne.CurrentApp().Driver().(desktop.Driver); ok {
-		w.NavWindow = drv.CreateSplashWindow()
-		w.NavWindow.SetTitle("winfastnav")
+		g.NavWindow = drv.CreateSplashWindow()
+		g.NavWindow.SetTitle("winfastnav")
 	} else {
-		w.NavWindow = w.NavApp.NewWindow("winfastnav")
+		g.NavWindow = g.NavApp.NewWindow("winfastnav")
 	}
 
-	w.NavWindow.Resize(fyne.NewSize(400, 250))
-	w.NavWindow.SetFixedSize(true)
-	w.NavWindow.CenterOnScreen()
-	resourceIcon := fyne.NewStaticResource("icon.ico", iconBytes)
-	w.NavWindow.SetIcon(resourceIcon)
+	g.NavWindow.Resize(fyne.NewSize(400, 250))
+	g.NavWindow.SetFixedSize(true)
+	g.NavWindow.CenterOnScreen()
+	resourceIcon := fyne.NewStaticResource("icon.ico", g.IconBytes)
+	g.NavWindow.SetIcon(resourceIcon)
 
-	w.InputEntry = w.NewCustomEntry(func() {
+	InputEntry = w.NewCustomEntry(func() {
 		fyne.Do(func() {
-			if len(w.InputEntry.Text) > 0 {
-				w.NavWindow.Canvas().Focus(w.ResultList)
+			if len(InputEntry.Text) > 0 {
+				g.NavWindow.Canvas().Focus(ResultList)
 			}
 		})
 	})
-	w.InputEntry.SetPlaceHolder("Start typing, ESC to hide")
+	InputEntry.SetPlaceHolder("Start typing, ESC to hide")
+	InputEntry.OnSubmitted = func(s string) {
+		g.NavWindow.Canvas().Focus(ResultList)
+	}
 
-	w.InputEntry.OnChanged = func(s string) {
+	InputEntry.OnChanged = func(s string) {
 		updateResultList(s)
 	}
 
-	w.ResultList = w.NewCustomList([]d.App{}, func(idx int, app d.App) {
-		openProgram(app.ExecPath)
+	ResultList = w.NewCustomList([]g.App{}, InputEntry, func(idx int, app g.App) {
+		apps.OpenProgram(app.ExecPath)
+		HideWindow()
 	})
 
 	updateContent()
-	showWindow()
+	ShowWindow()
 
-	// Don't close on X, hide instead.
-	w.NavWindow.SetCloseIntercept(func() {
-		hideWindow()
+	// Don't close on X, hide insteag.
+	g.NavWindow.SetCloseIntercept(func() {
+		HideWindow()
 	})
 	log.Printf("Done")
 }
@@ -74,7 +82,7 @@ func updateContent() {
 			}),
 			widget.NewButton("Quit", func() {
 				fyne.Do(func() {
-					w.NavApp.Quit()
+					g.NavApp.Quit()
 				})
 				systray.Quit()
 				os.Exit(0)
@@ -86,22 +94,22 @@ func updateContent() {
 
 	content := container.NewPadded(
 		container.NewBorder(
-			w.InputEntry,
+			InputEntry,
 			bottomHBox,
 			nil, nil,
-			w.ResultList,
+			ResultList,
 		),
 	)
 
-	w.NavWindow.SetContent(content)
+	g.NavWindow.SetContent(content)
 }
 
 func showSettings() {
 	searchStringEntry := widget.NewEntry()
-	searchStringEntry.SetText(d.SearchString)
+	searchStringEntry.SetText(g.SearchString)
 	searchStringEntry.OnChanged = func(s string) {
-		d.SearchString = s
-		_ = d.SetSetting("searchstring", s)
+		g.SearchString = s
+		_ = settings.SetSetting("searchstring", s)
 	}
 
 	searchStringBox := container.NewVBox(
@@ -112,10 +120,10 @@ func showSettings() {
 	searchStringBox.Resize(fyne.NewSize(400, 20))
 
 	blocklistBox := container.NewHBox(
-		widget.NewLabel(fmt.Sprintf("Blocklist (%d)", len(d.ExecBlocklist))),
+		widget.NewLabel(fmt.Sprintf("Blocklist (%d)", len(g.ExecBlocklist))),
 		widget.NewButton("Clear Blocklist", func() {
-			d.UnblockAllApplications()
-			dialog.NewInformation("Blocklist cleared", "All apps have been unblocked", w.NavWindow).Show()
+			apps.UnblockAllApplications()
+			dialog.NewInformation("Blocklist cleared", "All apps have been unblocked", g.NavWindow).Show()
 		}),
 	)
 
@@ -140,7 +148,7 @@ func showSettings() {
 		),
 	)
 
-	w.NavWindow.SetContent(content)
+	g.NavWindow.SetContent(content)
 }
 
 func showHelp() {
@@ -176,10 +184,10 @@ func showHelp() {
 		),
 	)
 
-	w.NavWindow.SetContent(content)
+	g.NavWindow.SetContent(content)
 }
 
-func showAbout() {
+func ShowAbout() {
 	topVBox := container.NewVBox(
 		widget.NewLabel("winfastnav: fast windows navigation"),
 	)
@@ -200,43 +208,43 @@ func showAbout() {
 		),
 	)
 
-	w.NavWindow.SetContent(content)
+	g.NavWindow.SetContent(content)
 }
 
 func updateResultList(needle string) {
 	if len(needle) == 0 {
 		setResultListFor(nil)
 	} else {
-		apps := findAppResults(needle)
-		setResultListFor(apps)
+		getapps := apps.FindAppResults(needle)
+		setResultListFor(getapps)
 	}
 
 	updateContent()
 }
 
-func setResultListFor(appList []d.App) {
+func setResultListFor(appList []g.App) {
 	if appList == nil {
-		appList = []d.App{}
+		appList = []g.App{}
 	}
 
-	w.ResultList.UpdateItems(appList)
+	ResultList.UpdateItems(appList)
 }
 
-func showWindow() {
-	shown = true
+func ShowWindow() {
+	g.Shown = true
 	fyne.Do(func() {
-		w.NavWindow.Show()
-		w.InputEntry.SetText("")
-		w.NavWindow.RequestFocus()
-		w.NavWindow.Canvas().Focus(w.InputEntry)
+		g.NavWindow.Show()
+		InputEntry.SetText("")
+		g.NavWindow.RequestFocus()
+		g.NavWindow.Canvas().Focus(InputEntry)
 	})
 }
 
-func hideWindow() {
-	shown = false
+func HideWindow() {
+	g.Shown = false
 	fyne.Do(func() {
 		updateResultList("")
-		w.NavWindow.Hide()
+		g.NavWindow.Hide()
 	})
 	debug.FreeOSMemory()
 }

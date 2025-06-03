@@ -5,7 +5,7 @@
 	nor activating by pushing enter, we have to roll our own.
 
 	Rather than allow selections like the original List widget, this is simply
-	a list of buttons that can be activated by pressing enter or being clicked.
+	a list of buttons that can be activated by pressing enter or being clickeg.
 
 	We do a few things to avoid too many allocations, namely having a fixed count
 	of reusable buttons and the component being updatable instead of spawning a
@@ -19,7 +19,8 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
-	d "winfastnav/assets"
+	"winfastnav/internal/apps"
+	g "winfastnav/internal/globals"
 )
 
 const maxButtons = 20
@@ -27,17 +28,19 @@ const maxButtons = 20
 type CustomList struct {
 	widget.BaseWidget
 
-	Items      []d.App
-	OnSelected func(index int, item d.App)
+	Items      []g.App
+	OnSelected func(index int, item g.App)
 
 	selectedIndex int
 	renderer      *customListRenderer
+	input         *CustomEntry
 }
 
-func NewCustomList(items []d.App, onSelected func(index int, item d.App)) *CustomList {
+func NewCustomList(items []g.App, inputRef *CustomEntry, onSelected func(index int, item g.App)) *CustomList {
 	sl := &CustomList{Items: items, OnSelected: onSelected}
 	sl.selectedIndex = -1
 	sl.ExtendBaseWidget(sl)
+	sl.input = inputRef
 	return sl
 }
 
@@ -78,7 +81,7 @@ func (sl *CustomList) CreateRenderer() fyne.WidgetRenderer {
 	return r
 }
 
-func (sl *CustomList) UpdateItems(newItems []d.App) {
+func (sl *CustomList) UpdateItems(newItems []g.App) {
 	sl.Items = newItems
 	sl.selectedIndex = -1
 	if sl.renderer == nil {
@@ -114,9 +117,9 @@ func (sl *CustomList) TypedKey(event *fyne.KeyEvent) {
 			"Are you sure you want to hide \""+itemName+"\"?",
 			func(confirmed bool) {
 				if confirmed {
-					d.BlockApplication(sl.Items[sl.selectedIndex])
-					NavWindow.Canvas().Focus(InputEntry)
-					InputEntry.SetText("")
+					apps.BlockApplication(sl.Items[sl.selectedIndex])
+					g.NavWindow.Canvas().Focus(sl.input)
+					sl.input.SetText("")
 				}
 			}, fyne.CurrentApp().Driver().AllWindows()[0])
 		dlg.Show()
@@ -150,7 +153,7 @@ func (sl *CustomList) moveSelection(delta int) {
 	if delta < 0 && sl.selectedIndex == 0 {
 		sl.selectedIndex = -1
 		fyne.Do(func() {
-			NavWindow.Canvas().Focus(InputEntry)
+			g.NavWindow.Canvas().Focus(sl.input)
 		})
 		return
 	}

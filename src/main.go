@@ -3,8 +3,10 @@ package main
 import (
 	"github.com/robotn/gohook"
 	"log"
-	d "winfastnav/assets"
-	ui "winfastnav/widgets"
+	"winfastnav/internal/apps"
+	g "winfastnav/internal/globals"
+	"winfastnav/internal/settings"
+	"winfastnav/ui"
 )
 
 var (
@@ -12,25 +14,25 @@ var (
 )
 
 func main() {
-	d.SetupSettings()
-	setupUI()
+	settings.SetupSettings()
+	ui.SetupUI()
 	setupTray()
-	setupApps()
+	apps.SetupApps()
 	go listenHotkeys()
 	log.Printf("BEGIN")
-	ui.NavApp.Run()
+	g.NavApp.Run()
 }
 
 func listenHotkeys() {
 	log.Printf("Preparing hotkey listeners")
 	hook.Register(hook.KeyDown, []string{"alt", "o"}, func(e hook.Event) {
-		showWindow()
+		ui.ShowWindow()
 	})
 
 	// Register escape key to hide window when it's focused
 	hook.Register(hook.KeyDown, []string{"esc"}, func(e hook.Event) {
-		if shown {
-			hideWindow()
+		if g.Shown {
+			ui.HideWindow()
 		}
 	})
 
