@@ -27,7 +27,7 @@ import (
 	g "winfastnav/internal/globals"
 )
 
-const maxItems = 20
+const maxItems = 30
 
 type listItem struct {
 	label      *widget.Label
@@ -35,26 +35,31 @@ type listItem struct {
 	container  *fyne.Container
 }
 
-type CustomList struct {
+type CustomList[T any] struct {
 	widget.BaseWidget
 
-	Items      []g.App
-	OnSelected func(index int, item g.App)
+	Items       []T
+	OnSelected  func(index int, item T)
+	DisplayFunc func(T) string // Function to extract display text from item
 
 	selectedIndex int
-	renderer      *customListRenderer
+	renderer      *customListRenderer[T]
 	input         *CustomEntry
 }
 
-func NewCustomList(items []g.App, inputRef *CustomEntry, onSelected func(index int, item g.App)) *CustomList {
-	sl := &CustomList{Items: items, OnSelected: onSelected}
+func NewCustomList[T any](items []T, inputRef *CustomEntry, displayFunc func(T) string, onSelected func(index int, item T)) *CustomList[T] {
+	sl := &CustomList[T]{
+		Items:       items,
+		OnSelected:  onSelected,
+		DisplayFunc: displayFunc,
+	}
 	sl.selectedIndex = -1
 	sl.ExtendBaseWidget(sl)
 	sl.input = inputRef
 	return sl
 }
 
-func (sl *CustomList) CreateRenderer() fyne.WidgetRenderer {
+func (sl *CustomList[T]) CreateRenderer() fyne.WidgetRenderer {
 	items := make([]*listItem, maxItems)
 
 	for i := 0; i < maxItems; i++ {
@@ -72,7 +77,7 @@ func (sl *CustomList) CreateRenderer() fyne.WidgetRenderer {
 		}
 
 		if i < len(sl.Items) {
-			label.SetText(sl.Items[i].Name)
+			label.SetText(sl.DisplayFunc(sl.Items[i]))
 			itemContainer.Show()
 		} else {
 			itemContainer.Hide()
@@ -87,7 +92,7 @@ func (sl *CustomList) CreateRenderer() fyne.WidgetRenderer {
 	content := container.NewVBox(objects...)
 	scroll := container.NewVScroll(content)
 
-	r := &customListRenderer{
+	r := &customListRenderer[T]{
 		list:    sl,
 		items:   items,
 		content: content,
@@ -97,7 +102,7 @@ func (sl *CustomList) CreateRenderer() fyne.WidgetRenderer {
 	return r
 }
 
-func (sl *CustomList) UpdateItems(newItems []g.App) {
+func (sl *CustomList[T]) UpdateItems(newItems []T) {
 	sl.Items = newItems
 	sl.selectedIndex = -1
 	if sl.renderer == nil {
@@ -108,7 +113,7 @@ func (sl *CustomList) UpdateItems(newItems []g.App) {
 
 	for i, item := range r.items {
 		if i < len(newItems) {
-			item.label.SetText(newItems[i].Name)
+			item.label.SetText(sl.DisplayFunc(newItems[i]))
 			item.container.Show()
 		} else {
 			item.container.Hide()
@@ -118,7 +123,7 @@ func (sl *CustomList) UpdateItems(newItems []g.App) {
 	r.Refresh()
 }
 
-func (sl *CustomList) TypedKey(event *fyne.KeyEvent) {
+func (sl *CustomList[T]) TypedKey(event *fyne.KeyEvent) {
 	switch event.Name {
 	case fyne.KeyUp:
 		sl.moveSelection(-1)
@@ -127,27 +132,31 @@ func (sl *CustomList) TypedKey(event *fyne.KeyEvent) {
 	case fyne.KeyReturn, fyne.KeyEnter:
 		sl.activateSelection()
 	case fyne.KeyDelete:
-		itemName := sl.Items[sl.selectedIndex].Name
-		dlg := dialog.NewConfirm("Hide app",
-			"Are you sure you want to hide \""+itemName+"\"?",
-			func(confirmed bool) {
-				if confirmed {
-					apps.BlockApplication(sl.Items[sl.selectedIndex])
-					g.NavWindow.Canvas().Focus(sl.input)
-					sl.input.SetText("")
-				}
-			}, fyne.CurrentApp().Driver().AllWindows()[0])
-		dlg.Show()
+		// Only for apps!
+		if any(sl.Items[sl.selectedIndex]).(g.App) != (g.App{}) {
+			app := any(sl.Items[sl.selectedIndex]).(g.App)
+			itemName := app.Name
+			dlg := dialog.NewConfirm("Hide app",
+				"Are you sure you want to hide \""+itemName+"\"?",
+				func(confirmed bool) {
+					if confirmed {
+						apps.BlockApplication(app)
+						g.NavWindow.Canvas().Focus(sl.input)
+						sl.input.SetText("")
+					}
+				}, fyne.CurrentApp().Driver().AllWindows()[0])
+			dlg.Show()
+		}
 	}
 }
 
 // TypedRune no-op: Even if we don't really care abt input, Fyne requires
 // this for something to be focusable.
-func (sl *CustomList) TypedRune(r rune) {
+func (sl *CustomList[T]) TypedRune(r rune) {
 	_ = r
 }
 
-func (sl *CustomList) FocusGained() {
+func (sl *CustomList[T]) FocusGained() {
 	if sl.selectedIndex < 0 && len(sl.Items) > 0 {
 		// select first item as soon as focus is gained
 		sl.selectedIndex = 0
@@ -155,11 +164,11 @@ func (sl *CustomList) FocusGained() {
 	sl.Refresh()
 }
 
-func (sl *CustomList) FocusLost() {
+func (sl *CustomList[T]) FocusLost() {
 	sl.Refresh()
 }
 
-func (sl *CustomList) moveSelection(delta int) {
+func (sl *CustomList[T]) moveSelection(delta int) {
 	n := len(sl.Items)
 	if n == 0 {
 		return
@@ -178,22 +187,19 @@ func (sl *CustomList) moveSelection(delta int) {
 	sl.Refresh()
 }
 
-func (sl *CustomList) scrollToSelection() {
+func (sl *CustomList[T]) scrollToSelection() {
 	if sl.renderer == nil || sl.selectedIndex < 0 || sl.selectedIndex >= len(sl.Items) {
 		return
 	}
 
-	// Get item height
 	if len(sl.renderer.items) == 0 {
 		return
 	}
 
-	// We need to account for padding. Tried a few numbers, 1.065 does well.
+	// Get item height, accountingfor padding. Tried a few numbers, 1.065 does well.
 	itemHeight := sl.renderer.items[0].container.MinSize().Height * 1.065
 
-	// Calculate the position of the selected item
 	selectedPosition := float32(sl.selectedIndex) * itemHeight
-
 	scrollHeight := sl.renderer.scroll.Size().Height
 	currentOffset := sl.renderer.scroll.Offset.Y
 
@@ -206,28 +212,28 @@ func (sl *CustomList) scrollToSelection() {
 	sl.renderer.scroll.Refresh()
 }
 
-func (sl *CustomList) activateSelection() {
+func (sl *CustomList[T]) activateSelection() {
 	if sl.selectedIndex >= 0 && sl.selectedIndex < len(sl.Items) && sl.OnSelected != nil {
 		sl.OnSelected(sl.selectedIndex, sl.Items[sl.selectedIndex])
 	}
 }
 
-type customListRenderer struct {
-	list    *CustomList
+type customListRenderer[T any] struct {
+	list    *CustomList[T]
 	items   []*listItem
 	content *fyne.Container
 	scroll  *container.Scroll
 }
 
-func (r *customListRenderer) Layout(size fyne.Size) {
+func (r *customListRenderer[T]) Layout(size fyne.Size) {
 	r.scroll.Resize(size)
 }
 
-func (r *customListRenderer) MinSize() fyne.Size {
+func (r *customListRenderer[T]) MinSize() fyne.Size {
 	return r.scroll.MinSize()
 }
 
-func (r *customListRenderer) Refresh() {
+func (r *customListRenderer[T]) Refresh() {
 	for i, item := range r.items {
 		if i == r.list.selectedIndex {
 			// Selected item gets highlighted background
@@ -242,8 +248,8 @@ func (r *customListRenderer) Refresh() {
 	r.scroll.Refresh()
 }
 
-func (r *customListRenderer) Objects() []fyne.CanvasObject {
+func (r *customListRenderer[T]) Objects() []fyne.CanvasObject {
 	return []fyne.CanvasObject{r.scroll}
 }
 
-func (r *customListRenderer) Destroy() {}
+func (r *customListRenderer[T]) Destroy() {}

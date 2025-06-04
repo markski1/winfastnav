@@ -36,12 +36,12 @@ func SetupSettings() {
 	g.SearchString, err = GetSetting("searchstring")
 	if err != nil || len(g.SearchString) == 0 {
 		// initialize with empty list string
-		err = SetSetting("searchstring", "https://duckduckgo.com/?q=")
+		err = SetSetting("searchstring", "https://duckduckgo.com/?q=%s")
 		if err != nil {
 			log.Printf("Error setting searchstring: %v", err)
 			return
 		}
-		g.SearchString = "https://duckduckgo.com/?q="
+		g.SearchString = "https://duckduckgo.com/?q=%s"
 	}
 }
 

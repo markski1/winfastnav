@@ -8,9 +8,11 @@
 package widgets
 
 import (
+	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
 	"log"
+	"net/url"
 	"os/exec"
 	g "winfastnav/internal/globals"
 )
@@ -36,7 +38,7 @@ func (e *CustomEntry) TypedKey(key *fyne.KeyEvent) {
 		if key.Name == fyne.KeyReturn || key.Name == fyne.KeyEnter {
 			fyne.Do(func() {
 				if len(e.Text) > 0 && e.Text[0] == '@' {
-					openURI(g.SearchString + e.Text[1:])
+					openURI(fmt.Sprintf(g.SearchString, url.QueryEscape(e.Text[1:])))
 					g.NavWindow.Hide()
 					return
 				}
@@ -49,6 +51,7 @@ func (e *CustomEntry) TypedKey(key *fyne.KeyEvent) {
 }
 
 func openURI(uri string) {
+	log.Printf(uri)
 	cmd := exec.Command("cmd", "/c", "start", uri)
 	err := cmd.Run()
 	if err != nil {

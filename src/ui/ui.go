@@ -23,8 +23,9 @@ import (
 
 var (
 	InputEntry      *w.CustomEntry
-	ResultList      *w.CustomList
-	mainButtonBox   *fyne.Container
+	ResultList      *w.CustomList[g.App]
+	inputContainer  *fyne.Container
+	openSize        = fyne.NewSize(425, 300)
 	choosingOpenApp = false
 )
 
@@ -41,7 +42,7 @@ func SetupUI() {
 		g.NavWindow = g.NavApp.NewWindow(g.AppName)
 	}
 
-	g.NavWindow.Resize(fyne.NewSize(425, 275))
+	g.NavWindow.Resize(openSize)
 	g.NavWindow.SetFixedSize(true)
 	g.NavWindow.CenterOnScreen()
 	resourceIcon := fyne.NewStaticResource("icon.ico", g.IconBytes)
@@ -63,28 +64,18 @@ func SetupUI() {
 		updateResultList(s)
 	}
 
-	ResultList = w.NewCustomList([]g.App{}, InputEntry, func(idx int, app g.App) {
+	inputContainer = container.NewBorder(
+		nil, nil, nil,
+		widget.NewButton("Menu", func() {
+			showMenu()
+		}),
+		InputEntry,
+	)
+
+	ResultList = w.NewCustomList[]([]g.App{}, InputEntry, func(app g.App) string { return app.Name }, func(idx int, app g.App) {
 		apps.OpenProgram(app.ExecPath)
 		HideWindow()
 	})
-
-	mainButtonBox = container.NewCenter(
-		container.NewHBox(
-			widget.NewButton("Help", func() {
-				showHelp()
-			}),
-			widget.NewButton("Settings", func() {
-				showSettings()
-			}),
-			widget.NewButton("Quit", func() {
-				fyne.Do(func() {
-					g.NavApp.Quit()
-				})
-				systray.Quit()
-				os.Exit(0)
-			}),
-		),
-	)
 
 	updateContent(nil)
 	ShowWindow()
@@ -100,13 +91,50 @@ func updateContent(aContent fyne.CanvasObject) {
 	fyne.Do(func() {
 		g.NavWindow.SetContent(container.NewPadded(
 			container.NewBorder(
-				InputEntry,
-				mainButtonBox,
-				nil, nil,
+				inputContainer,
+				nil, nil, nil,
 				aContent,
 			),
 		))
 	})
+}
+
+func showContent(aContent fyne.CanvasObject) {
+	bottomVBox := container.NewVBox(
+		widget.NewButton("OK", func() {
+			updateContent(nil)
+		}),
+	)
+
+	content := container.NewPadded(
+		container.NewBorder(
+			aContent,
+			bottomVBox,
+			nil,
+			nil,
+		),
+	)
+
+	g.NavWindow.SetContent(content)
+}
+
+func showMenu() {
+	content := container.NewVBox(
+		widget.NewButton("Help", func() {
+			showHelp()
+		}),
+		widget.NewButton("Settings", func() {
+			showSettings()
+		}),
+		widget.NewButton("Quit", func() {
+			fyne.Do(func() {
+				g.NavApp.Quit()
+			})
+			systray.Quit()
+			os.Exit(0)
+		}),
+	)
+	showContent(content)
 }
 
 func showSettings() {
@@ -122,8 +150,6 @@ func showSettings() {
 		searchStringEntry,
 	)
 
-	searchStringBox.Resize(fyne.NewSize(425, 20))
-
 	blocklistBox := container.NewHBox(
 		widget.NewLabel(fmt.Sprintf("Blocklist (%d)", len(g.ExecBlocklist))),
 		widget.NewButton("Clear Blocklist", func() {
@@ -132,32 +158,17 @@ func showSettings() {
 		}),
 	)
 
-	topVBox := container.NewVBox(
+	content := container.NewVBox(
 		searchStringBox,
 		widget.NewSeparator(),
 		blocklistBox,
 	)
 
-	bottomVBox := container.NewVBox(
-		widget.NewButton("OK", func() {
-			updateContent(nil)
-		}),
-	)
-
-	content := container.NewPadded(
-		container.NewBorder(
-			topVBox,
-			bottomVBox,
-			nil,
-			nil,
-		),
-	)
-
-	g.NavWindow.SetContent(content)
+	showContent(content)
 }
 
 func showHelp() {
-	topVBox := container.NewVBox(
+	first := container.NewVBox(
 		widget.NewLabel(
 			"Shortcuts:\n" +
 				"ALT + O: Summon\n" +
@@ -166,7 +177,7 @@ func showHelp() {
 		),
 	)
 
-	midVBox := container.NewVBox(
+	second := container.NewVBox(
 		widget.NewLabel(
 			"Prefixes:\n"+
 				"@: Internet search\n",
@@ -178,23 +189,9 @@ func showHelp() {
 		),
 	)
 
-	bottomVBox := container.NewVBox(
-		widget.NewButton("OK", func() {
-			updateContent(nil)
-		}),
-	)
+	content := container.NewVBox(first, second)
 
-	content := container.NewPadded(
-		container.NewBorder(
-			topVBox,
-			bottomVBox,
-			nil,
-			nil,
-			midVBox,
-		),
-	)
-
-	g.NavWindow.SetContent(content)
+	showContent(content)
 }
 
 func ShowAbout() {
@@ -226,45 +223,56 @@ func updateResultList(inputText string) {
 	if choosingOpenApp {
 		return
 	}
-	// If it's a math op, eval and show result.
-	if utils.IsMath(inputText) {
-		// remove spaces and eval
-		inputText := strings.ReplaceAll(inputText, " ", "")
-		result, err := utils.EvalMath(inputText)
-		// If we cannot eval then assume IsMath false positive and proceed w/ results.
-		if err == nil {
-			updateContent(container.NewVBox(
-				widget.NewLabel(result),
-			))
+	if len(inputText) > 0 {
+		if inputText[0] == '@' {
+			updateContent(widget.NewLabel("Internet search: " + inputText[1:]))
 			return
 		}
-	}
-	if len(inputText) == 0 {
-		setResultListFor(nil)
-	} else {
+
+		// If it's a math op, eval and show result.
+		if utils.IsMath(inputText) {
+			// remove spaces and eval
+			inputText := strings.ReplaceAll(inputText, " ", "")
+			result, err := utils.EvalMath(inputText)
+			// If we cannot eval then assume IsMath false positive and proceed w/ results.
+			if err == nil {
+				updateContent(container.NewVBox(
+					widget.NewLabel(result),
+				))
+				return
+			}
+		}
+
 		getapps := apps.FindAppResults(inputText)
 		setResultListFor(getapps)
+	} else {
+		setResultListFor(nil)
 	}
 
 	updateContent(ResultList)
 }
 
 func updateSubmitContent(inputText string) {
-	// If it's a math op, set the result as the new input text
-	if utils.IsMath(inputText) {
-		inputText := strings.ReplaceAll(inputText, " ", "")
-		result, err := utils.EvalMath(inputText)
-		if err == nil {
-			InputEntry.SetText(result)
+	if len(inputText) > 0 {
+		if inputText[0] == '@' {
 			return
 		}
-	}
-	// Else see if we're looking at open apps
-	if choosingOpenApp {
-		num, err := strconv.Atoi(inputText)
-		if err == nil {
-			HideWindow()
-			apps.FocusWindow(num)
+		// If it's a math op, set the result as the new input text
+		if utils.IsMath(inputText) {
+			inputText := strings.ReplaceAll(inputText, " ", "")
+			result, err := utils.EvalMath(inputText)
+			if err == nil {
+				InputEntry.SetText(result)
+				return
+			}
+		}
+		if choosingOpenApp {
+			num, err := strconv.Atoi(inputText)
+			if err == nil {
+				HideWindow()
+				apps.FocusWindow(num)
+				return
+			}
 		}
 	}
 	// Otherwise attempt to focus the list.

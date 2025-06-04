@@ -58,7 +58,15 @@ func GetOpenWindows() string {
 
 	for _, entry := range entries {
 		lastOpenWindows[count] = entry.handle
-		retval += fmt.Sprintf("[ %v ] %v\n", count, entry.title)
+		// for unicode safety we use runes and not chars
+		runes := []rune(entry.title)
+		var showTitle string
+		if len(runes) > 64 {
+			showTitle = string(runes[:60])
+		} else {
+			showTitle = entry.title
+		}
+		retval += fmt.Sprintf("[ %v ] %v\n", count, showTitle)
 		count++
 	}
 
