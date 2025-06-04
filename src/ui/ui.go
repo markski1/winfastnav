@@ -12,15 +12,18 @@ import (
 	"log"
 	"os"
 	"runtime/debug"
+	"strings"
 	"winfastnav/internal/apps"
 	g "winfastnav/internal/globals"
 	"winfastnav/internal/settings"
+	"winfastnav/internal/utils"
 	w "winfastnav/ui/widgets"
 )
 
 var (
-	InputEntry *w.CustomEntry
-	ResultList *w.CustomList
+	InputEntry    *w.CustomEntry
+	ResultList    *w.CustomList
+	mainButtonBox *fyne.Container
 )
 
 func SetupUI() {
@@ -61,18 +64,7 @@ func SetupUI() {
 		HideWindow()
 	})
 
-	updateContent()
-	ShowWindow()
-
-	// Don't close on X, hide insteag.
-	g.NavWindow.SetCloseIntercept(func() {
-		HideWindow()
-	})
-	log.Printf("Done")
-}
-
-func updateContent() {
-	bottomHBox := container.NewCenter(
+	mainButtonBox = container.NewCenter(
 		container.NewHBox(
 			widget.NewButton("Help", func() {
 				showHelp()
@@ -89,19 +81,27 @@ func updateContent() {
 			}),
 		),
 	)
+	mainButtonBox.Resize(fyne.NewSize(400, 20))
 
-	bottomHBox.Resize(fyne.NewSize(400, 20))
+	updateContent(nil)
+	ShowWindow()
 
-	content := container.NewPadded(
+	// Don't close on X, hide insteag.
+	g.NavWindow.SetCloseIntercept(func() {
+		HideWindow()
+	})
+	log.Printf("Done")
+}
+
+func updateContent(aContent fyne.CanvasObject) {
+	g.NavWindow.SetContent(container.NewPadded(
 		container.NewBorder(
 			InputEntry,
-			bottomHBox,
+			mainButtonBox,
 			nil, nil,
-			ResultList,
+			aContent,
 		),
-	)
-
-	g.NavWindow.SetContent(content)
+	))
 }
 
 func showSettings() {
@@ -135,7 +135,7 @@ func showSettings() {
 
 	bottomVBox := container.NewVBox(
 		widget.NewButton("OK", func() {
-			updateContent()
+			updateContent(nil)
 		}),
 	)
 
@@ -163,14 +163,19 @@ func showHelp() {
 
 	midVBox := container.NewVBox(
 		widget.NewLabel(
-			"Prefixes:\n" +
+			"Prefixes:\n"+
 				"@: Internet search\n",
+		),
+		widget.NewLabel(
+			"Math:\n"+
+				"Supported: + - * /\n"+
+				"Just write an operation and see the result.",
 		),
 	)
 
 	bottomVBox := container.NewVBox(
 		widget.NewButton("OK", func() {
-			updateContent()
+			updateContent(nil)
 		}),
 	)
 
@@ -195,7 +200,7 @@ func ShowAbout() {
 	bottomVBox := container.NewVBox(
 		widget.NewLabel("markski.ar\ngithub.com/markski1"),
 		widget.NewButton("OK", func() {
-			updateContent()
+			updateContent(nil)
 		}),
 	)
 
@@ -212,6 +217,19 @@ func ShowAbout() {
 }
 
 func updateResultList(needle string) {
+	// If it's a math op, eval and show result.
+	if utils.IsMath(needle) {
+		// remove spaces and eval
+		needle := strings.ReplaceAll(needle, " ", "")
+		result, err := utils.EvalMath(needle)
+		// If we cannot eval then assume IsMath false positive and proceed w/ results.
+		if err == nil {
+			updateContent(container.NewVBox(
+				widget.NewLabel(fmt.Sprintf("Result: %v", result)),
+			))
+			return
+		}
+	}
 	if len(needle) == 0 {
 		setResultListFor(nil)
 	} else {
@@ -219,7 +237,7 @@ func updateResultList(needle string) {
 		setResultListFor(getapps)
 	}
 
-	updateContent()
+	updateContent(ResultList)
 }
 
 func setResultListFor(appList []g.App) {

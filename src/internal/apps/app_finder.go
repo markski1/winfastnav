@@ -35,9 +35,14 @@ func GetInstalledApps() []g.App {
 		"speech recognition",
 		"redistributable",
 		"x64-based systems",
+		"application verifier",
+		"uninstall",
 	}
 
 	var apps []g.App
+
+	// Somehow not found by default
+	apps = append(apps, g.App{Name: "Calculator", ExecPath: "calc.exe"})
 
 	for _, keyRoot := range keys {
 		for _, basePath := range basePaths {
@@ -72,6 +77,7 @@ func GetInstalledApps() []g.App {
 				// Remove if they contain any substring from skipIfSubstr
 				if ContainsAny(strings.ToLower(displayName), skipIfSubstr) {
 					_ = subKey.Close()
+					continue
 				}
 
 				// no system components
@@ -90,7 +96,6 @@ func GetInstalledApps() []g.App {
 
 				execPath, _, err := subKey.GetStringValue("DisplayIcon")
 
-				// Sometimes there's no exec path, we can do nothing with those!
 				if err != nil || len(execPath) < 1 {
 					_ = subKey.Close()
 					continue
@@ -105,6 +110,13 @@ func GetInstalledApps() []g.App {
 
 	apps = scanStartMenu(apps)
 
+	// remove undesirables
+	for i, app := range apps {
+		if !strings.Contains(app.ExecPath, ".exe") || ContainsAny(strings.ToLower(app.ExecPath), skipIfSubstr) || ContainsAny(strings.ToLower(app.Name), skipIfSubstr) {
+			apps = append(apps[:i], apps[i+1:]...)
+		}
+	}
+
 	// sort by name
 	sort.Slice(apps, func(i, j int) bool {
 		return strings.ToLower(apps[i].Name) < strings.ToLower(apps[j].Name)
@@ -117,7 +129,7 @@ func cleanExecutablePath(path string) string {
 	if i := strings.Index(path, ","); i != -1 {
 		path = path[:i]
 	}
-	return strings.TrimSpace(path)
+	return strings.TrimSpace(strings.ToLower(path))
 }
 
 func resolveShortcut(path string) (string, error) {
@@ -167,10 +179,6 @@ func scanStartMenu(currentAppList []g.App) []g.App {
 			}
 			target, err := resolveShortcut(p)
 			if err != nil || target == "" {
-				return nil
-			}
-			// Only include executables
-			if !strings.Contains(strings.ToLower(target), ".exe") {
 				return nil
 			}
 

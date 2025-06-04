@@ -1,1 +1,1 @@
-go build -ldflags="-H windowsgui -s -w" -o winfastnav.exe
+go build -trimpath -ldflags="-H windowsgui -s -w" -o winfastnav.exe
