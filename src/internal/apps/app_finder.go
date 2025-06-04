@@ -36,7 +36,11 @@ func GetInstalledApps() []g.App {
 		"redistributable",
 		"x64-based systems",
 		"application verifier",
-		"uninstall",
+		"install",
+		"unins",
+		"sdk",
+		"runtime",
+		"rundll32.exe",
 	}
 
 	var apps []g.App
@@ -74,12 +78,6 @@ func GetInstalledApps() []g.App {
 					continue
 				}
 
-				// Remove if they contain any substring from skipIfSubstr
-				if ContainsAny(strings.ToLower(displayName), skipIfSubstr) {
-					_ = subKey.Close()
-					continue
-				}
-
 				// no system components
 				if sysVal, _, err := subKey.GetIntegerValue("SystemComponent"); err == nil && sysVal > 0 {
 					_ = subKey.Close()
@@ -102,7 +100,7 @@ func GetInstalledApps() []g.App {
 				}
 
 				// Sometimes there's a comma and extra params, clear those out
-				apps = append(apps, g.App{Name: displayName, ExecPath: cleanExecutablePath(execPath)})
+				apps = append(apps, g.App{Name: strings.TrimSpace(displayName), ExecPath: cleanExecutablePath(execPath)})
 				_ = subKey.Close()
 			}
 		}
@@ -110,19 +108,22 @@ func GetInstalledApps() []g.App {
 
 	apps = scanStartMenu(apps)
 
+	var cleanApps []g.App
+
 	// remove undesirables
 	for i, app := range apps {
-		if !strings.Contains(app.ExecPath, ".exe") || ContainsAny(strings.ToLower(app.ExecPath), skipIfSubstr) || ContainsAny(strings.ToLower(app.Name), skipIfSubstr) {
-			apps = append(apps[:i], apps[i+1:]...)
+		if !(!strings.Contains(app.ExecPath, ".exe") || ContainsAny(app.ExecPath, skipIfSubstr) ||
+			ContainsAny(strings.ToLower(app.Name), skipIfSubstr) || ContainsAny(app.ExecPath, g.ExecBlocklist)) {
+			cleanApps = append(cleanApps, apps[i])
 		}
 	}
 
 	// sort by name
-	sort.Slice(apps, func(i, j int) bool {
-		return strings.ToLower(apps[i].Name) < strings.ToLower(apps[j].Name)
+	sort.Slice(cleanApps, func(i, j int) bool {
+		return strings.ToLower(cleanApps[i].Name) < strings.ToLower(apps[j].Name)
 	})
 
-	return apps
+	return cleanApps
 }
 
 func cleanExecutablePath(path string) string {
@@ -181,23 +182,16 @@ func scanStartMenu(currentAppList []g.App) []g.App {
 			if err != nil || target == "" {
 				return nil
 			}
+			name := strings.TrimSuffix(de.Name(), ".lnk")
 
 			// No repeats
 			for _, app := range currentAppList {
-				if strings.EqualFold(app.ExecPath, target) {
+				if strings.EqualFold(app.ExecPath, target) || strings.EqualFold(app.Name, name) {
 					return nil
 				}
 			}
 
-			// Blacklist
-			for _, block := range g.ExecBlocklist {
-				if strings.Contains(strings.ToLower(target), strings.ToLower(block)) {
-					return nil
-				}
-			}
-
-			name := strings.TrimSuffix(de.Name(), ".lnk")
-			currentAppList = append(currentAppList, g.App{Name: name, ExecPath: target})
+			currentAppList = append(currentAppList, g.App{Name: strings.TrimSpace(name), ExecPath: strings.ToLower(target)})
 			return nil
 		})
 		if err != nil {

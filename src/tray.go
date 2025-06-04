@@ -16,7 +16,7 @@ func setupTray() {
 
 func onReady() {
 	systray.SetIcon(g.IconBytes)
-	systray.SetTitle("winfastnav")
+	systray.SetTitle(g.AppName)
 	systray.SetTooltip("winfastnav: fast windows navigation")
 
 	mToggle := systray.AddMenuItem("Show", "Show window")

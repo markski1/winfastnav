@@ -12,6 +12,7 @@ type App struct {
 }
 
 var (
+	AppName       = "winfastnav v0.1"
 	AppList       []App
 	ExecBlocklist []string
 	SearchString  string

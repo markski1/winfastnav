@@ -26,7 +26,11 @@ func main() {
 func listenHotkeys() {
 	log.Printf("Preparing hotkey listeners")
 	hook.Register(hook.KeyDown, []string{"alt", "o"}, func(e hook.Event) {
-		ui.ShowWindow()
+		if !g.Shown {
+			ui.ShowWindow()
+		} else {
+			ui.SetChooseOpenApps()
+		}
 	})
 
 	// Register escape key to hide window when it's focused

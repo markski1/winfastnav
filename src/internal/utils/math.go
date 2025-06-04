@@ -2,6 +2,7 @@ package utils
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"unicode"
@@ -13,7 +14,7 @@ func IsMath(s string) bool {
 	}
 	hasRune := false
 	for _, r := range s {
-		if strings.ContainsRune("+-/* ", r) {
+		if strings.ContainsRune("+-/*,. ", r) {
 			hasRune = true
 			continue
 		}
@@ -24,10 +25,11 @@ func IsMath(s string) bool {
 	return hasRune
 }
 
-func EvalMath(expr string) (float64, error) {
+func EvalMath(expr string) (string, error) {
+	expr = strings.ReplaceAll(expr, ",", ".")
 	tokens, err := tokenize(expr)
 	if err != nil {
-		return 0, err
+		return "0", err
 	}
 
 	// Infix and Postfix notation is pretty cool and worth reading about.
@@ -36,35 +38,72 @@ func EvalMath(expr string) (float64, error) {
 	// So you just put the operators in proper order and go through their operands. Neat!
 	postfix, err := infixToPostfix(tokens)
 	if err != nil {
-		return 0, err
+		return "0", err
 	}
 
-	return evalPostfix(postfix)
+	result, err := evalPostfix(postfix)
+
+	if err != nil {
+		return "0", err
+	}
+
+	strResult := fmt.Sprintf("%.2f", result)
+	return strings.ReplaceAll(strResult, ".00", ""), nil
 }
 
 /*
 	A significant chunk of the code below is LLM generated.
+	Modified to support floats and tested a fair bit.
 */
 
 func tokenize(expr string) ([]string, error) {
 	var tokens []string
 	var number strings.Builder
+	dotCount := 0
+
+	flushNumber := func() error {
+		if number.Len() > 0 {
+			// Check that number is valid float
+			numStr := number.String()
+			if strings.Count(numStr, ".") > 1 {
+				return errors.New("invalid number with multiple decimal points: " + numStr)
+			}
+			tokens = append(tokens, numStr)
+			number.Reset()
+			dotCount = 0
+		}
+		return nil
+	}
+
 	for i, r := range expr {
 		if unicode.IsDigit(r) {
 			number.WriteRune(r)
+		} else if r == '.' {
+			if dotCount >= 1 {
+				return nil, errors.New("invalid number with multiple decimal points")
+			}
+			dotCount++
+			number.WriteRune(r)
 		} else if strings.ContainsRune("+-/*", r) {
-			if number.Len() > 0 {
-				tokens = append(tokens, number.String())
-				number.Reset()
+			if err := flushNumber(); err != nil {
+				return nil, err
 			}
 			tokens = append(tokens, string(r))
+		} else if unicode.IsSpace(r) {
+			// On space flush number (if any)
+			if err := flushNumber(); err != nil {
+				return nil, err
+			}
+			// Skip spaces otherwise
 		} else {
 			return nil, errors.New("invalid character in expression")
 		}
 
 		// If last char and number buffer is not empty, flush it
-		if i == len(expr)-1 && number.Len() > 0 {
-			tokens = append(tokens, number.String())
+		if i == len(expr)-1 {
+			if err := flushNumber(); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return tokens, nil
@@ -82,8 +121,8 @@ func infixToPostfix(tokens []string) ([]string, error) {
 	var stack []string
 
 	for _, token := range tokens {
-		if _, err := strconv.Atoi(token); err == nil {
-			// Token is a number
+		if _, err := strconv.ParseFloat(token, 64); err == nil {
+			// Token is a number (float supported)
 			output = append(output, token)
 		} else if p, ok := precedence[token]; ok {
 			// Token is operator
