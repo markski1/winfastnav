@@ -5,25 +5,35 @@
 	nor activating by pushing enter, we have to roll our own.
 
 	Rather than allow selections like the original List widget, this is simply
-	a list of buttons that can be activated by pressing enter or being clickeg.
+	a list of labels that can be activated by pressing enter.
 
 	We do a few things to avoid too many allocations, namely having a fixed count
-	of reusable buttons and the component being updatable instead of spawning a
+	of reusable labels and the component being updatable instead of spawning a
 	new list each time as with the default List widget.
 */
 
 package widgets
 
 import (
+	"image/color"
+
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"winfastnav/internal/apps"
 	g "winfastnav/internal/globals"
 )
 
-const maxButtons = 20
+const maxItems = 20
+
+type listItem struct {
+	label      *widget.Label
+	background *canvas.Rectangle
+	container  *fyne.Container
+}
 
 type CustomList struct {
 	widget.BaseWidget
@@ -45,27 +55,33 @@ func NewCustomList(items []g.App, inputRef *CustomEntry, onSelected func(index i
 }
 
 func (sl *CustomList) CreateRenderer() fyne.WidgetRenderer {
-	buttons := make([]*widget.Button, maxButtons)
+	items := make([]*listItem, maxItems)
 
-	for i := 0; i < maxButtons; i++ {
-		idx := i
-		var btn *widget.Button
-		if i < len(sl.Items) {
-			app := sl.Items[i]
-			btn = widget.NewButton(app.Name, func() {
-				sl.selectedIndex = idx
-				sl.activateSelection()
-			})
-		} else {
-			btn = widget.NewButton("", nil)
-			btn.Hide()
+	for i := 0; i < maxItems; i++ {
+		label := widget.NewLabel("")
+		label.Alignment = fyne.TextAlignLeading
+
+		background := canvas.NewRectangle(color.Transparent)
+
+		itemContainer := container.NewBorder(nil, nil, nil, nil, background, label)
+
+		items[i] = &listItem{
+			label:      label,
+			background: background,
+			container:  itemContainer,
 		}
-		buttons[i] = btn
+
+		if i < len(sl.Items) {
+			label.SetText(sl.Items[i].Name)
+			itemContainer.Show()
+		} else {
+			itemContainer.Hide()
+		}
 	}
 
-	objects := make([]fyne.CanvasObject, maxButtons)
-	for i, btn := range buttons {
-		objects[i] = btn
+	objects := make([]fyne.CanvasObject, maxItems)
+	for i, item := range items {
+		objects[i] = item.container
 	}
 
 	content := container.NewVBox(objects...)
@@ -73,7 +89,7 @@ func (sl *CustomList) CreateRenderer() fyne.WidgetRenderer {
 
 	r := &customListRenderer{
 		list:    sl,
-		buttons: buttons,
+		items:   items,
 		content: content,
 		scroll:  scroll,
 	}
@@ -90,13 +106,12 @@ func (sl *CustomList) UpdateItems(newItems []g.App) {
 	}
 	r := sl.renderer
 
-	for i, btn := range r.buttons {
+	for i, item := range r.items {
 		if i < len(newItems) {
-			btn.SetText(newItems[i].Name)
-			btn.Importance = widget.MediumImportance
-			btn.Show()
+			item.label.SetText(newItems[i].Name)
+			item.container.Show()
 		} else {
-			btn.Hide()
+			item.container.Hide()
 		}
 	}
 
@@ -168,24 +183,24 @@ func (sl *CustomList) scrollToSelection() {
 		return
 	}
 
-	// Get button height
-	if len(sl.renderer.buttons) == 0 {
+	// Get item height
+	if len(sl.renderer.items) == 0 {
 		return
 	}
 
-	// We need to account for padding. Tried a few numbers, 1.12 does well.
-	buttonHeight := sl.renderer.buttons[0].MinSize().Height * 1.12
+	// We need to account for padding. Tried a few numbers, 1.065 does well.
+	itemHeight := sl.renderer.items[0].container.MinSize().Height * 1.065
 
-	// Calculate the position of the selected button
-	selectedPosition := float32(sl.selectedIndex) * buttonHeight
+	// Calculate the position of the selected item
+	selectedPosition := float32(sl.selectedIndex) * itemHeight
 
 	scrollHeight := sl.renderer.scroll.Size().Height
 	currentOffset := sl.renderer.scroll.Offset.Y
 
 	if selectedPosition < currentOffset {
 		sl.renderer.scroll.Offset.Y = selectedPosition
-	} else if selectedPosition+buttonHeight > currentOffset+scrollHeight {
-		sl.renderer.scroll.Offset.Y = selectedPosition + buttonHeight - scrollHeight
+	} else if selectedPosition+itemHeight > currentOffset+scrollHeight {
+		sl.renderer.scroll.Offset.Y = selectedPosition + itemHeight - scrollHeight
 	}
 
 	sl.renderer.scroll.Refresh()
@@ -199,7 +214,7 @@ func (sl *CustomList) activateSelection() {
 
 type customListRenderer struct {
 	list    *CustomList
-	buttons []*widget.Button
+	items   []*listItem
 	content *fyne.Container
 	scroll  *container.Scroll
 }
@@ -213,13 +228,15 @@ func (r *customListRenderer) MinSize() fyne.Size {
 }
 
 func (r *customListRenderer) Refresh() {
-	for i, btn := range r.buttons {
+	for i, item := range r.items {
 		if i == r.list.selectedIndex {
-			btn.Importance = widget.HighImportance
+			// Selected item gets highlighted background
+			item.background.FillColor = theme.Color("primary")
 		} else {
-			btn.Importance = widget.MediumImportance
+			// Non-selected items have transparent background
+			item.background.FillColor = color.Transparent
 		}
-		btn.Refresh()
+		item.background.Refresh()
 	}
 	r.content.Refresh()
 	r.scroll.Refresh()

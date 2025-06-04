@@ -29,6 +29,8 @@ var (
 func SetupUI() {
 	log.Printf("Preparing UI")
 
+	g.NavApp.Settings().SetTheme(&wfnTheme{})
+
 	// Attempt to create a borderless window as a 'splash'.
 	if drv, ok := fyne.CurrentApp().Driver().(desktop.Driver); ok {
 		g.NavWindow = drv.CreateSplashWindow()
