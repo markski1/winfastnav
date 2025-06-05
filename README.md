@@ -11,9 +11,6 @@ The purpose of the program is to act as a quick navigation bar, similarly to Pow
 
 ## TODO
 
-- Navigating open windows
-- Shortcuts to some functionality (ie. internet search)
-- Settings and customization
 - Auto-start with Windows
 - Auto-update
 - Look into lowering memory usage (Currently ~50mb which is quite brutal for such a simple application)

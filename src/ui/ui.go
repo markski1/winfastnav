@@ -81,7 +81,7 @@ func SetupUI() {
 	})
 
 	openProgramList = w.NewCustomList([]string{}, InputEntry, func(s string) string { return s }, func(idx int, s string) {
-		apps.FocusWindow(idx)
+		apps.FocusWindow(idx + 1)
 		HideWindow()
 	})
 
@@ -104,6 +104,8 @@ func updateContent(aContent fyne.CanvasObject) {
 				aContent,
 			),
 		))
+		g.NavWindow.Canvas().Focus(InputEntry)
+		g.NavWindow.RequestFocus()
 	})
 }
 
@@ -229,6 +231,9 @@ func ShowAbout() {
 }
 
 func updateResultList(input string) {
+	if choosingOpenApp {
+		return
+	}
 	getApps, mathResult := core.Search(input)
 	if mathResult != nil {
 		updateContent(widget.NewLabel(*mathResult))
@@ -284,9 +289,10 @@ func ShowWindow() {
 	choosingOpenApp = false
 	fyne.Do(func() {
 		InputEntry.SetPlaceHolder("Program search...")
-		g.NavWindow.Canvas().Focus(InputEntry)
 		g.NavWindow.Show()
+		g.NavWindow.Canvas().Focus(InputEntry)
 		g.NavWindow.RequestFocus()
+		g.NavWindow.Canvas().Focus(InputEntry)
 	})
 }
 

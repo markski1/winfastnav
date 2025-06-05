@@ -38,6 +38,7 @@ func (e *CustomEntry) TypedKey(key *fyne.KeyEvent) {
 				if len(e.Text) > 0 && e.Text[0] == '@' {
 					openURI(fmt.Sprintf(g.SearchString, url.QueryEscape(e.Text[1:])))
 					g.NavWindow.Hide()
+					g.Shown = false
 					return
 				}
 			})

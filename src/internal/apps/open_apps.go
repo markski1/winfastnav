@@ -14,6 +14,8 @@ var (
 	procGetWindowTextLength = user32.NewProc("GetWindowTextLengthW")
 	procGetWindowText       = user32.NewProc("GetWindowTextW")
 	procIsWindowVisible     = user32.NewProc("IsWindowVisible")
+	procShowWindow          = user32.NewProc("ShowWindow")
+	procIsIconic            = user32.NewProc("IsIconic")
 	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
 	lastOpenWindows         map[int]HWND
 )
@@ -73,9 +75,18 @@ func GetOpenWindows() []string {
 	return switchWindowRet
 }
 
+func isWindowMinimized(hwnd HWND) bool {
+	ret, _, _ := procIsIconic.Call(uintptr(hwnd))
+	return ret != 0
+}
+
 func FocusWindow(windowNumber int) {
 	if windowNumber > 0 && windowNumber <= len(lastOpenWindows) {
 		h := lastOpenWindows[windowNumber]
+		// only restore if minimized
+		if isWindowMinimized(h) {
+			_, _, _ = procShowWindow.Call(uintptr(h), uintptr(9))
+		}
 		setForegroundWindow(h)
 	}
 }
