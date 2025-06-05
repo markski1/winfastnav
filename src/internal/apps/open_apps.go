@@ -26,7 +26,7 @@ type windowEntry struct {
 	title  string
 }
 
-func GetOpenWindows() string {
+func GetOpenWindows() []string {
 	var windowsMap = make(map[HWND]string)
 
 	callback := syscall.NewCallback(func(hwnd uintptr, lparam uintptr) uintptr {
@@ -42,8 +42,8 @@ func GetOpenWindows() string {
 
 	_, _, _ = procEnumWindows.Call(callback, 0)
 
-	var retval string = ""
 	lastOpenWindows = map[int]HWND{}
+	var switchWindowRet []string
 	count := 1
 
 	// move to a windowEntry struct for sorting
@@ -61,16 +61,16 @@ func GetOpenWindows() string {
 		// for unicode safety we use runes and not chars
 		runes := []rune(entry.title)
 		var showTitle string
-		if len(runes) > 64 {
-			showTitle = string(runes[:60])
+		if len(runes) > 50 {
+			showTitle = string(runes[:50])
 		} else {
 			showTitle = entry.title
 		}
-		retval += fmt.Sprintf("[ %v ] %v\n", count, showTitle)
+		switchWindowRet = append(switchWindowRet, fmt.Sprintf("[ %d ] %s", count, showTitle))
 		count++
 	}
 
-	return retval
+	return switchWindowRet
 }
 
 func FocusWindow(windowNumber int) {

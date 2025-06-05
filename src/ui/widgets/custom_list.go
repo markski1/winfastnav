@@ -1,18 +1,13 @@
-/*
-	CustomList
-
-	Because the List widget from Fyne doesn't support keyboard selection,
-	nor activating by pushing enter, we have to roll our own.
-
-	Rather than allow selections like the original List widget, this is simply
-	a list of labels that can be activated by pressing enter.
-
-	We do a few things to avoid too many allocations, namely having a fixed count
-	of reusable labels and the component being updatable instead of spawning a
-	new list each time as with the default List widget.
-*/
-
 package widgets
+
+/*
+	Because the List widget from Fyne doesn't support keyboard selection and actions, we roll our own.
+
+	This is simply a scrollable list of labels that can be activated by keystrokes.
+
+	We do a few things extra things to avoid too many allocations. I understand it's a non-issue for a small
+	app like this, but I want to avoid GC pauses anyways given it'll be largely an idle background app.
+*/
 
 import (
 	"image/color"
@@ -105,22 +100,25 @@ func (sl *CustomList[T]) CreateRenderer() fyne.WidgetRenderer {
 func (sl *CustomList[T]) UpdateItems(newItems []T) {
 	sl.Items = newItems
 	sl.selectedIndex = -1
-	if sl.renderer == nil {
-		sl.Refresh()
-		return
-	}
-	r := sl.renderer
 
-	for i, item := range r.items {
-		if i < len(newItems) {
-			item.label.SetText(sl.DisplayFunc(newItems[i]))
-			item.container.Show()
-		} else {
-			item.container.Hide()
+	fyne.Do(func() {
+		if sl.renderer == nil {
+			sl.Refresh()
+			return
 		}
-	}
+		r := sl.renderer
 
-	r.Refresh()
+		for i, item := range r.items {
+			if i < len(newItems) {
+				item.label.SetText(sl.DisplayFunc(newItems[i]))
+				item.container.Show()
+			} else {
+				item.container.Hide()
+			}
+		}
+
+		r.Refresh()
+	})
 }
 
 func (sl *CustomList[T]) TypedKey(event *fyne.KeyEvent) {
@@ -234,18 +232,20 @@ func (r *customListRenderer[T]) MinSize() fyne.Size {
 }
 
 func (r *customListRenderer[T]) Refresh() {
-	for i, item := range r.items {
-		if i == r.list.selectedIndex {
-			// Selected item gets highlighted background
-			item.background.FillColor = theme.Color("primary")
-		} else {
-			// Non-selected items have transparent background
-			item.background.FillColor = color.Transparent
+	fyne.Do(func() {
+		for i, item := range r.items {
+			if i == r.list.selectedIndex {
+				// Selected item gets highlighted background
+				item.background.FillColor = theme.Color("primary")
+			} else {
+				// Non-selected items have transparent background
+				item.background.FillColor = color.Transparent
+			}
+			item.background.Refresh()
 		}
-		item.background.Refresh()
-	}
-	r.content.Refresh()
-	r.scroll.Refresh()
+		r.content.Refresh()
+		r.scroll.Refresh()
+	})
 }
 
 func (r *customListRenderer[T]) Objects() []fyne.CanvasObject {

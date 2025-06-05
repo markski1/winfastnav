@@ -1,5 +1,11 @@
 package utils
 
+/*
+	To my dismay, this source file is largely LLM generated.
+	I had a go at doing most of this myself but I just kept digging into
+	deeper rabbit holes, tokenization is a hell of a drug.
+*/
+
 import (
 	"errors"
 	"fmt"
@@ -50,11 +56,6 @@ func EvalMath(expr string) (string, error) {
 	strResult := fmt.Sprintf("%.2f", result)
 	return strings.ReplaceAll(strResult, ".00", ""), nil
 }
-
-/*
-	A significant chunk of the code below is LLM generated.
-	Modified to support floats and tested a fair bit.
-*/
 
 func tokenize(expr string) ([]string, error) {
 	var tokens []string

@@ -21,6 +21,7 @@ func onReady() {
 
 	mToggle := systray.AddMenuItem("Show", "Show window")
 	mAbout := systray.AddMenuItem("About", "Show window")
+	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Exit", "Exit program")
 
 	go func() {

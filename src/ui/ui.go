@@ -11,12 +11,11 @@ import (
 	"github.com/getlantern/systray"
 	"log"
 	"os"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"winfastnav/internal/apps"
+	"winfastnav/internal/core"
 	g "winfastnav/internal/globals"
-	"winfastnav/internal/settings"
 	"winfastnav/internal/utils"
 	w "winfastnav/ui/widgets"
 )
@@ -24,8 +23,8 @@ import (
 var (
 	InputEntry      *w.CustomEntry
 	ResultList      *w.CustomList[g.App]
+	openProgramList *w.CustomList[string]
 	inputContainer  *fyne.Container
-	openSize        = fyne.NewSize(425, 300)
 	choosingOpenApp = false
 )
 
@@ -42,7 +41,7 @@ func SetupUI() {
 		g.NavWindow = g.NavApp.NewWindow(g.AppName)
 	}
 
-	g.NavWindow.Resize(openSize)
+	g.NavWindow.Resize(fyne.NewSize(425, 300))
 	g.NavWindow.SetFixedSize(true)
 	g.NavWindow.CenterOnScreen()
 	resourceIcon := fyne.NewStaticResource("icon.ico", g.IconBytes)
@@ -51,11 +50,15 @@ func SetupUI() {
 	InputEntry = w.NewCustomEntry(func() {
 		fyne.Do(func() {
 			if len(InputEntry.Text) > 0 {
-				g.NavWindow.Canvas().Focus(ResultList)
+				if !choosingOpenApp {
+					g.NavWindow.Canvas().Focus(ResultList)
+				}
+			}
+			if choosingOpenApp {
+				g.NavWindow.Canvas().Focus(openProgramList)
 			}
 		})
 	})
-	InputEntry.SetPlaceHolder("Start typing, ESC to hide")
 	InputEntry.OnSubmitted = func(s string) {
 		updateSubmitContent(s)
 	}
@@ -72,8 +75,13 @@ func SetupUI() {
 		InputEntry,
 	)
 
-	ResultList = w.NewCustomList[]([]g.App{}, InputEntry, func(app g.App) string { return app.Name }, func(idx int, app g.App) {
+	ResultList = w.NewCustomList([]g.App{}, InputEntry, func(app g.App) string { return app.Name }, func(idx int, app g.App) {
 		apps.OpenProgram(app.ExecPath)
+		HideWindow()
+	})
+
+	openProgramList = w.NewCustomList([]string{}, InputEntry, func(s string) string { return s }, func(idx int, s string) {
+		apps.FocusWindow(idx)
 		HideWindow()
 	})
 
@@ -126,6 +134,9 @@ func showMenu() {
 		widget.NewButton("Settings", func() {
 			showSettings()
 		}),
+		widget.NewButton("About", func() {
+			ShowAbout()
+		}),
 		widget.NewButton("Quit", func() {
 			fyne.Do(func() {
 				g.NavApp.Quit()
@@ -141,8 +152,7 @@ func showSettings() {
 	searchStringEntry := widget.NewEntry()
 	searchStringEntry.SetText(g.SearchString)
 	searchStringEntry.OnChanged = func(s string) {
-		g.SearchString = s
-		_ = settings.SetSetting("searchstring", s)
+		core.UpdateSearchSetting(s)
 	}
 
 	searchStringBox := container.NewVBox(
@@ -218,37 +228,13 @@ func ShowAbout() {
 	g.NavWindow.SetContent(content)
 }
 
-func updateResultList(inputText string) {
-	// only if not in app choice mode
-	if choosingOpenApp {
+func updateResultList(input string) {
+	getApps, mathResult := core.Search(input)
+	if mathResult != nil {
+		updateContent(widget.NewLabel(*mathResult))
 		return
 	}
-	if len(inputText) > 0 {
-		if inputText[0] == '@' {
-			updateContent(widget.NewLabel("Internet search: " + inputText[1:]))
-			return
-		}
-
-		// If it's a math op, eval and show result.
-		if utils.IsMath(inputText) {
-			// remove spaces and eval
-			inputText := strings.ReplaceAll(inputText, " ", "")
-			result, err := utils.EvalMath(inputText)
-			// If we cannot eval then assume IsMath false positive and proceed w/ results.
-			if err == nil {
-				updateContent(container.NewVBox(
-					widget.NewLabel(result),
-				))
-				return
-			}
-		}
-
-		getapps := apps.FindAppResults(inputText)
-		setResultListFor(getapps)
-	} else {
-		setResultListFor(nil)
-	}
-
+	ResultList.UpdateItems(getApps)
 	updateContent(ResultList)
 }
 
@@ -274,37 +260,33 @@ func updateSubmitContent(inputText string) {
 				return
 			}
 		}
+		g.NavWindow.Canvas().Focus(ResultList)
 	}
 	// Otherwise attempt to focus the list.
-	g.NavWindow.Canvas().Focus(ResultList)
-}
-
-func setResultListFor(appList []g.App) {
-	if appList == nil {
-		appList = []g.App{}
+	if choosingOpenApp {
+		g.NavWindow.Canvas().Focus(openProgramList)
+		return
 	}
-
-	ResultList.UpdateItems(appList)
 }
 
 func SetChooseOpenApps() {
 	choosingOpenApp = true
+	fyne.Do(func() {
+		InputEntry.SetPlaceHolder("Choose window...")
+	})
 	openAppList := apps.GetOpenWindows()
-	updateContent(container.NewVBox(
-		widget.NewLabel("Input option number:"),
-		widget.NewLabel(openAppList),
-	))
+	openProgramList.UpdateItems(openAppList)
+	updateContent(openProgramList)
 }
 
 func ShowWindow() {
 	g.Shown = true
 	choosingOpenApp = false
 	fyne.Do(func() {
-		g.NavWindow.Show()
-		InputEntry.SetText("")
-		g.NavWindow.RequestFocus()
+		InputEntry.SetPlaceHolder("Program search...")
 		g.NavWindow.Canvas().Focus(InputEntry)
-		updateContent(nil)
+		g.NavWindow.Show()
+		g.NavWindow.RequestFocus()
 	})
 }
 
@@ -312,6 +294,7 @@ func HideWindow() {
 	g.Shown = false
 	fyne.Do(func() {
 		g.NavWindow.Hide()
+		InputEntry.SetText("")
+		updateContent(nil)
 	})
-	debug.FreeOSMemory()
 }

@@ -1,11 +1,9 @@
-/*
-	CustomEntry
+package widgets
 
+/*
 	Entry widget, but calls the given function when the down arrow is pressed.
 	Used to focus the result list when arrow down is pushed.
 */
-
-package widgets
 
 import (
 	"fmt"
