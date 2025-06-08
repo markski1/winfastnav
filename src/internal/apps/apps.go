@@ -4,6 +4,7 @@ import (
 	"log"
 	"os/exec"
 	"strings"
+	"syscall"
 	g "winfastnav/internal/globals"
 )
 
@@ -30,7 +31,10 @@ func FindAppResults(needle string) []g.App {
 	return results
 }
 
-func OpenProgram(execPath string) {
+func OpenProgram(execPath string) error {
 	cmd := exec.Command(execPath)
-	_ = cmd.Start()
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow: true,
+	}
+	return cmd.Start()
 }

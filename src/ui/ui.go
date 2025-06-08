@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 	"winfastnav/internal/apps"
 	"winfastnav/internal/core"
 	g "winfastnav/internal/globals"
@@ -88,7 +89,7 @@ func SetupUI() {
 	updateContent(nil)
 	ShowWindow()
 
-	// Don't close on X, hide insteag.
+	// Don't close on X, hide instead.
 	g.NavWindow.SetCloseIntercept(func() {
 		HideWindow()
 	})
@@ -104,8 +105,8 @@ func updateContent(aContent fyne.CanvasObject) {
 				aContent,
 			),
 		))
-		g.NavWindow.Canvas().Focus(InputEntry)
 		g.NavWindow.RequestFocus()
+		g.NavWindow.Canvas().Focus(InputEntry)
 	})
 }
 
@@ -158,7 +159,7 @@ func showSettings() {
 	}
 
 	searchStringBox := container.NewVBox(
-		widget.NewLabel("Search string"),
+		widget.NewLabel("HandleTextInput string"),
 		searchStringEntry,
 	)
 
@@ -192,7 +193,8 @@ func showHelp() {
 	second := container.NewVBox(
 		widget.NewLabel(
 			"Prefixes:\n"+
-				"@: Internet search\n",
+				"@: Internet search\n"+
+				"!: GPT prompt\n",
 		),
 		widget.NewLabel(
 			"Math:\n"+
@@ -234,7 +236,7 @@ func updateResultList(input string) {
 	if choosingOpenApp {
 		return
 	}
-	getApps, mathResult := core.Search(input)
+	getApps, mathResult := core.HandleTextInput(input)
 	if mathResult != nil {
 		updateContent(widget.NewLabel(*mathResult))
 		return
@@ -256,6 +258,17 @@ func updateSubmitContent(inputText string) {
 				InputEntry.SetText(result)
 				return
 			}
+		}
+		if utils.StartsWith(inputText, "!") {
+			updateContent(widget.NewLabel("Please wait..."))
+			prompt := inputText[1:]
+			go func(p string) {
+				result := utils.MakeGPTReq(p)
+				fyne.Do(func() {
+					updateContent(widget.NewLabel(result))
+				})
+			}(prompt)
+			return
 		}
 		if choosingOpenApp {
 			num, err := strconv.Atoi(inputText)
@@ -290,7 +303,7 @@ func ShowWindow() {
 	fyne.Do(func() {
 		InputEntry.SetPlaceHolder("Program search...")
 		g.NavWindow.Show()
-		g.NavWindow.Canvas().Focus(InputEntry)
+		time.Sleep(25 * time.Millisecond)
 		g.NavWindow.RequestFocus()
 		g.NavWindow.Canvas().Focus(InputEntry)
 	})

@@ -10,7 +10,7 @@ import (
 	"winfastnav/internal/utils"
 )
 
-func Search(query string) (retApps []globals.App, resultStr *string) {
+func HandleTextInput(query string) (retApps []globals.App, resultStr *string) {
 	if len(query) == 0 {
 		return nil, nil
 	}
@@ -18,6 +18,11 @@ func Search(query string) (retApps []globals.App, resultStr *string) {
 	// internet search
 	if query[0] == '@' {
 		s := fmt.Sprintf("Internet search: %s", query[1:])
+		return nil, &s
+	}
+
+	if utils.StartsWith(query, "!") {
+		s := fmt.Sprintf("Enter to GPT: %s", query[1:])
 		return nil, &s
 	}
 

@@ -5,15 +5,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="75c87852-f2f0-44d8-814c-622ee70f8978" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/src/internal/core/core.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/internal/utils/gpt.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/internal/utils/misc.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/internal/apps/apps.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/apps/apps.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/internal/apps/open_apps.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/apps/open_apps.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/internal/utils/math.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/utils/math.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/tray.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/tray.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/ui/theme.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/ui/theme.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/internal/core/core.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/core/core.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/ui/ui.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/ui/ui.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/ui/widgets/custom_entry.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/ui/widgets/custom_entry.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/ui/widgets/custom_list.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/ui/widgets/custom_list.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

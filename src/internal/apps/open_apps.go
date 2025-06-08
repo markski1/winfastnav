@@ -6,6 +6,7 @@ import (
 	"sort"
 	"syscall"
 	"unsafe"
+	g "winfastnav/internal/globals"
 )
 
 var (
@@ -59,15 +60,22 @@ func GetOpenWindows() []string {
 	})
 
 	for _, entry := range entries {
+		if entry.title == g.AppName {
+			continue
+		}
+
 		lastOpenWindows[count] = entry.handle
+
 		// for unicode safety we use runes and not chars
 		runes := []rune(entry.title)
 		var showTitle string
-		if len(runes) > 50 {
-			showTitle = string(runes[:50])
+
+		if len(runes) > 64 {
+			showTitle = string(runes[:64])
 		} else {
 			showTitle = entry.title
 		}
+
 		switchWindowRet = append(switchWindowRet, fmt.Sprintf("[ %d ] %s", count, showTitle))
 		count++
 	}
@@ -93,9 +101,11 @@ func FocusWindow(windowNumber int) {
 
 func getWindowText(hwnd HWND) string {
 	length, _, _ := procGetWindowTextLength.Call(uintptr(hwnd))
+
 	if length == 0 {
 		return ""
 	}
+
 	buf := make([]uint16, length+1)
 	_, _, _ = procGetWindowText.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&buf[0])), length+1)
 	return syscall.UTF16ToString(buf)
