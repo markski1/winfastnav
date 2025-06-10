@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	g "winfastnav/internal/globals"
+	"winfastnav/internal/utils"
 )
 
 func GetInstalledApps() []g.App {
@@ -112,8 +113,8 @@ func GetInstalledApps() []g.App {
 
 	// remove undesirables
 	for i, app := range apps {
-		if !(!strings.Contains(app.ExecPath, ".exe") || ContainsAny(app.ExecPath, skipIfSubstr) ||
-			ContainsAny(strings.ToLower(app.Name), skipIfSubstr) || ContainsAny(app.ExecPath, g.ExecBlocklist)) {
+		if !(!strings.Contains(app.ExecPath, ".exe") || utils.ContainsAny(app.ExecPath, skipIfSubstr) ||
+			utils.ContainsAny(strings.ToLower(app.Name), skipIfSubstr) || utils.ContainsAny(app.ExecPath, g.ExecBlocklist)) {
 			cleanApps = append(cleanApps, apps[i])
 		}
 	}

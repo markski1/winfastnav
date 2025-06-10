@@ -11,6 +11,7 @@ package widgets
 
 import (
 	"image/color"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -139,10 +140,17 @@ func (sl *CustomList[T]) TypedKey(event *fyne.KeyEvent) {
 				func(confirmed bool) {
 					if confirmed {
 						apps.BlockApplication(app)
-						g.NavWindow.Canvas().Focus(sl.input)
+						text := sl.input.Text
+						sl.input.SetText("")
+						go func(text string) {
+							time.Sleep(25 * time.Millisecond)
+							fyne.Do(func() {
+								sl.input.SetText(text)
+							})
+						}(text)
 						sl.input.SetText("")
 					}
-				}, fyne.CurrentApp().Driver().AllWindows()[0])
+				}, g.NavWindow)
 			dlg.Show()
 		}
 	}

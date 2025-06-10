@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"strings"
+	"winfastnav/internal/documents"
 
 	"winfastnav/internal/apps"
 	"winfastnav/internal/globals"
@@ -10,7 +11,7 @@ import (
 	"winfastnav/internal/utils"
 )
 
-func HandleTextInput(query string) (retApps []globals.App, resultStr *string) {
+func HandleTextInput(query string) (retItems []interface{}, resultStr *string) {
 	if len(query) == 0 {
 		return nil, nil
 	}
@@ -22,7 +23,8 @@ func HandleTextInput(query string) (retApps []globals.App, resultStr *string) {
 	}
 
 	if utils.StartsWith(query, "!") {
-		s := fmt.Sprintf("Enter to GPT: %s", query[1:])
+		s := fmt.Sprintf("QuickGPT: %s", query[1:])
+		s = utils.WrapTextByWords(s, 64)
 		return nil, &s
 	}
 
@@ -34,8 +36,23 @@ func HandleTextInput(query string) (retApps []globals.App, resultStr *string) {
 		}
 	}
 
-	// fallback to app search
-	return apps.FindAppResults(query), nil
+	if globals.CurrentMode == globals.ModeProgramSearch {
+		findItems := apps.FindAppResults(query)
+		retItems = make([]interface{}, len(findItems))
+		for i, app := range findItems {
+			retItems[i] = app
+		}
+		return retItems, nil
+	} else if globals.CurrentMode == globals.ModeDocumentSearch {
+		findItems := documents.FilterDocumentsByName(query)
+		retItems = make([]interface{}, len(findItems))
+		for i, app := range findItems {
+			retItems[i] = app
+		}
+		return retItems, nil
+	} else {
+		return nil, nil
+	}
 }
 
 // UpdateSearchSetting updates the saved search-string.

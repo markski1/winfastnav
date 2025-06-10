@@ -3,19 +3,9 @@ package apps
 import (
 	"encoding/json"
 	"log"
-	"strings"
 	g "winfastnav/internal/globals"
 	"winfastnav/internal/settings"
 )
-
-func ContainsAny(s string, subs []string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
-	}
-	return false
-}
 
 func UnblockAllApplications() {
 	g.ExecBlocklist = []string{}

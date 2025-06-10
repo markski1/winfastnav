@@ -32,34 +32,48 @@ func HttpGet(url string) (string, error) {
 }
 
 func WrapTextByWords(s string, maxLen int) string {
-	words := strings.Fields(s)
-	if maxLen <= 0 || len(words) == 0 {
+	if maxLen <= 0 {
 		return s
+	}
+
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = wrapLine(line, maxLen)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func wrapLine(line string, maxLen int) string {
+	words := strings.Fields(line)
+	if len(words) == 0 {
+		return line
 	}
 
 	var b strings.Builder
 	var lineLen int
-
 	for _, w := range words {
-		runes := []rune(w)
-		wLen := len(runes)
-
+		wLen := len([]rune(w))
 		if lineLen == 0 {
-			// start a new line
 			b.WriteString(w)
 			lineLen = wLen
 		} else if lineLen+1+wLen <= maxLen {
-			// append to current line
 			b.WriteByte(' ')
 			b.WriteString(w)
 			lineLen += 1 + wLen
 		} else {
-			// wrap before this word
 			b.WriteRune('\n')
 			b.WriteString(w)
 			lineLen = wLen
 		}
 	}
-
 	return b.String()
+}
+
+func ContainsAny(s string, subs []string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
 }

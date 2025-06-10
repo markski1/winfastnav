@@ -5,13 +5,16 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="75c87852-f2f0-44d8-814c-622ee70f8978" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/src/internal/utils/gpt.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/internal/utils/misc.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/internal/documents/document_finder.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/internal/apps/apps.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/apps/apps.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/internal/apps/open_apps.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/apps/open_apps.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/internal/apps/app_finder.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/apps/app_finder.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/internal/apps/app_helpers.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/apps/app_helpers.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/internal/core/core.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/core/core.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/internal/globals/globals.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/globals/globals.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/internal/utils/misc.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/utils/misc.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/ui/ui.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/ui/ui.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ui/widgets/custom_list.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/ui/widgets/custom_list.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -33,6 +36,9 @@
     <layout place="tools.popupGrunt">
       <scroll-view-position x="0" y="0" />
     </layout>
+  </component>
+  <component name="ProblemsViewState">
+    <option name="selectedTabId" value="CurrentFile" />
   </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 6
@@ -60,7 +66,8 @@
     &quot;last_opened_file_path&quot;: &quot;C:/Users/Markski/Documents/GitHub/winfastnav&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;
   }
 }</component>
   <component name="RecentsManager">
@@ -75,8 +82,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-gosdk-3b128438d3f6-4b567d62c776-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-251.25410.140" />
-        <option value="bundled-js-predefined-d6986cc7102b-6a121458b545-JavaScript-GO-251.25410.140" />
+        <option value="bundled-gosdk-3b128438d3f6-4b567d62c776-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-251.26094.127" />
+        <option value="bundled-js-predefined-d6986cc7102b-b26f3e71634d-JavaScript-GO-251.26094.127" />
       </set>
     </attachedChunks>
   </component>

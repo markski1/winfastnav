@@ -16,17 +16,18 @@ import (
 	"time"
 	"winfastnav/internal/apps"
 	"winfastnav/internal/core"
+	"winfastnav/internal/documents"
 	g "winfastnav/internal/globals"
 	"winfastnav/internal/utils"
 	w "winfastnav/ui/widgets"
 )
 
 var (
-	InputEntry      *w.CustomEntry
-	ResultList      *w.CustomList[g.App]
-	openProgramList *w.CustomList[string]
-	inputContainer  *fyne.Container
-	choosingOpenApp = false
+	InputEntry         *w.CustomEntry
+	ProgramResultList  *w.CustomList[g.App]
+	DocumentResultList *w.CustomList[g.Document]
+	openProgramList    *w.CustomList[string]
+	inputContainer     *fyne.Container
 )
 
 func SetupUI() {
@@ -51,11 +52,14 @@ func SetupUI() {
 	InputEntry = w.NewCustomEntry(func() {
 		fyne.Do(func() {
 			if len(InputEntry.Text) > 0 {
-				if !choosingOpenApp {
-					g.NavWindow.Canvas().Focus(ResultList)
+				if g.CurrentMode == g.ModeProgramSearch {
+					g.NavWindow.Canvas().Focus(ProgramResultList)
+				}
+				if g.CurrentMode == g.ModeDocumentSearch {
+					g.NavWindow.Canvas().Focus(DocumentResultList)
 				}
 			}
-			if choosingOpenApp {
+			if g.CurrentMode == g.ModeChoosingProgram {
 				g.NavWindow.Canvas().Focus(openProgramList)
 			}
 		})
@@ -76,8 +80,23 @@ func SetupUI() {
 		InputEntry,
 	)
 
-	ResultList = w.NewCustomList([]g.App{}, InputEntry, func(app g.App) string { return app.Name }, func(idx int, app g.App) {
-		apps.OpenProgram(app.ExecPath)
+	ProgramResultList = w.NewCustomList([]g.App{}, InputEntry, func(app g.App) string { return app.Name }, func(idx int, app g.App) {
+		err := apps.OpenProgram(app.ExecPath)
+		if err != nil {
+			log.Printf("Error opening program: %v", err)
+			MainShowText("Sorry, there was an error opening the program.")
+			return
+		}
+		HideWindow()
+	})
+
+	DocumentResultList = w.NewCustomList([]g.Document{}, InputEntry, func(doc g.Document) string { return doc.Filename }, func(idx int, doc g.Document) {
+		err := documents.OpenFile(doc.Path)
+		if err != nil {
+			log.Printf("Error opening file: %v", err)
+			MainShowText("Sorry, there was an error opening the file.")
+			return
+		}
 		HideWindow()
 	})
 
@@ -159,7 +178,7 @@ func showSettings() {
 	}
 
 	searchStringBox := container.NewVBox(
-		widget.NewLabel("HandleTextInput string"),
+		widget.NewLabel("Search string"),
 		searchStringEntry,
 	)
 
@@ -197,6 +216,11 @@ func showHelp() {
 				"!: GPT prompt\n",
 		),
 		widget.NewLabel(
+			"Modes:\n"+
+				"ALT + O: Program switch\n"+
+				"ALT + D: Document search\n",
+		),
+		widget.NewLabel(
 			"Math:\n"+
 				"Supported: + - * /\n"+
 				"Just write an operation and see the result.",
@@ -232,17 +256,42 @@ func ShowAbout() {
 	g.NavWindow.SetContent(content)
 }
 
+func MainShowText(text string) {
+	formattedText := utils.WrapTextByWords(text, 64)
+	updateContent(widget.NewLabel(formattedText))
+}
+
 func updateResultList(input string) {
-	if choosingOpenApp {
+	if g.CurrentMode == g.ModeChoosingProgram {
 		return
 	}
-	getApps, mathResult := core.HandleTextInput(input)
+	listGet, mathResult := core.HandleTextInput(input)
 	if mathResult != nil {
-		updateContent(widget.NewLabel(*mathResult))
+		MainShowText(*mathResult)
 		return
 	}
-	ResultList.UpdateItems(getApps)
-	updateContent(ResultList)
+	if g.CurrentMode == g.ModeProgramSearch {
+		appList := make([]g.App, 0, len(listGet))
+		for _, item := range listGet {
+			if app, ok := item.(g.App); ok {
+				appList = append(appList, app)
+			}
+		}
+		ProgramResultList.UpdateItems(appList)
+		updateContent(ProgramResultList)
+		return
+	} else if g.CurrentMode == g.ModeDocumentSearch {
+		docList := make([]g.Document, 0, len(listGet))
+		for _, item := range listGet {
+			if doc, ok := item.(g.Document); ok {
+				docList = append(docList, doc)
+			}
+		}
+		DocumentResultList.UpdateItems(docList)
+		updateContent(DocumentResultList)
+		return
+	}
+	updateContent(nil)
 }
 
 func updateSubmitContent(inputText string) {
@@ -260,17 +309,17 @@ func updateSubmitContent(inputText string) {
 			}
 		}
 		if utils.StartsWith(inputText, "!") {
-			updateContent(widget.NewLabel("Please wait..."))
+			MainShowText("Please wait...")
 			prompt := inputText[1:]
 			go func(p string) {
 				result := utils.MakeGPTReq(p)
 				fyne.Do(func() {
-					updateContent(widget.NewLabel(result))
+					MainShowText(result)
 				})
 			}(prompt)
 			return
 		}
-		if choosingOpenApp {
+		if g.CurrentMode == g.ModeChoosingProgram {
 			num, err := strconv.Atoi(inputText)
 			if err == nil {
 				HideWindow()
@@ -278,28 +327,47 @@ func updateSubmitContent(inputText string) {
 				return
 			}
 		}
-		g.NavWindow.Canvas().Focus(ResultList)
+		g.NavWindow.Canvas().Focus(ProgramResultList)
 	}
 	// Otherwise attempt to focus the list.
-	if choosingOpenApp {
+	if g.CurrentMode == g.ModeChoosingProgram {
 		g.NavWindow.Canvas().Focus(openProgramList)
 		return
 	}
 }
 
-func SetChooseOpenApps() {
-	choosingOpenApp = true
-	fyne.Do(func() {
-		InputEntry.SetPlaceHolder("Choose window...")
-	})
-	openAppList := apps.GetOpenWindows()
-	openProgramList.UpdateItems(openAppList)
-	updateContent(openProgramList)
+func SetMode(newMode int) {
+	g.CurrentMode = newMode
+	if newMode == g.ModeChoosingProgram {
+		fyne.Do(func() {
+			InputEntry.SetPlaceHolder("Choose window...")
+		})
+		openAppList := apps.GetOpenWindows()
+		openProgramList.UpdateItems(openAppList)
+		updateContent(openProgramList)
+		return
+	}
+	if newMode == g.ModeProgramSearch {
+		fyne.Do(func() {
+			InputEntry.SetPlaceHolder("Program search...")
+		})
+		updateContent(nil)
+	}
+	if newMode == g.ModeDocumentSearch {
+		fyne.Do(func() {
+			if g.FinishedCachingDocs {
+				InputEntry.SetPlaceHolder("Document search...")
+			} else {
+				InputEntry.SetPlaceHolder("Document search [still caching]...")
+			}
+		})
+		updateContent(nil)
+	}
 }
 
 func ShowWindow() {
 	g.Shown = true
-	choosingOpenApp = false
+	g.CurrentMode = g.ModeProgramSearch
 	fyne.Do(func() {
 		InputEntry.SetPlaceHolder("Program search...")
 		g.NavWindow.Show()

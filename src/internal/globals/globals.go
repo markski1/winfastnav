@@ -11,15 +11,29 @@ type App struct {
 	ExecPath string
 }
 
+type Document struct {
+	Filename string
+	Path     string
+}
+
+const (
+	ModeProgramSearch   = 0
+	ModeChoosingProgram = 1
+	ModeDocumentSearch  = 2
+)
+
 var (
 	AppName       = "winfastnav v0.1"
 	AppList       []App
 	ExecBlocklist []string
 	SearchString  string
 
-	NavApp    = app.New()
-	NavWindow fyne.Window
-	Shown     bool = false
+	FinishedCachingDocs = false
+
+	NavApp      = app.New()
+	NavWindow   fyne.Window
+	Shown       bool = false
+	CurrentMode int  = ModeProgramSearch
 
 	//go:embed assets/icon.ico
 	IconBytes []byte

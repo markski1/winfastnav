@@ -4,6 +4,7 @@ import (
 	"github.com/robotn/gohook"
 	"log"
 	"winfastnav/internal/apps"
+	"winfastnav/internal/documents"
 	g "winfastnav/internal/globals"
 	"winfastnav/internal/settings"
 	"winfastnav/ui"
@@ -16,8 +17,9 @@ var (
 func main() {
 	settings.SetupSettings()
 	ui.SetupUI()
-	setupTray()
-	apps.SetupApps()
+	go setupTray()
+	go documents.SetupDocs()
+	go apps.SetupApps()
 	go listenHotkeys()
 	log.Printf("BEGIN")
 	g.NavApp.Run()
@@ -29,7 +31,17 @@ func listenHotkeys() {
 		if !g.Shown {
 			ui.ShowWindow()
 		} else {
-			ui.SetChooseOpenApps()
+			if g.CurrentMode == g.ModeProgramSearch {
+				ui.SetMode(g.ModeChoosingProgram)
+			} else {
+				ui.SetMode(g.ModeProgramSearch)
+			}
+		}
+	})
+
+	hook.Register(hook.KeyDown, []string{"alt", "d"}, func(e hook.Event) {
+		if g.Shown {
+			ui.SetMode(g.ModeDocumentSearch)
 		}
 	})
 
