@@ -307,6 +307,7 @@ func updateResultList(input string) {
 	if g.CurrentMode == g.ModeChooseProgram {
 		return
 	}
+
 	listGet, mathResult := core.HandleTextInput(input)
 	if mathResult != nil {
 		MainShowText(*mathResult)
@@ -348,12 +349,9 @@ func updateSubmitContent(inputText string) {
 				go apps.SetupApps()
 				MainShowText("Now re-indexing all programs and documents.")
 			}
-			// If text len > 4 then we can go ahead and execute as if it were a parameter
-			if len(inputText) > 4 && inputText[3] == ' ' {
-				inputText = inputText[4:]
-			} else {
-				return
-			}
+
+			InputEntry.SetText("")
+			return
 		}
 
 		// If it's a math op, set the result as the new input text

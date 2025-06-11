@@ -9,15 +9,19 @@ The personal purpose of this project is to learn the Go language.
 
 The purpose of the program is to act as a quick navigation bar, similarly to PowerToys Run.
 
-## TODO
+## Screenshots
 
-- Auto-start with Windows
-- Auto-update
-- Look into lowering memory usage (Currently ~50mb which is quite brutal for such a simple application)
+![imagen](https://github.com/user-attachments/assets/ac1276a1-d4e1-4454-8690-d120f99d7c50)
+
+![imagen](https://github.com/user-attachments/assets/15fbcc5a-0844-4534-baff-3803c4678f79)
+
+![imagen](https://github.com/user-attachments/assets/45dd0a16-b484-41b6-b4c5-014b4926bb13)
+
+![imagen](https://github.com/user-attachments/assets/4b60aefa-50ee-471f-be7f-7d53937c007b)
 
 ## Build
 
-go build -ldflags="-H windowsgui -s -w" -o winfastnav.exe
+go build -trimpath -ldflags="-H windowsgui -s -w" -o winfastnav.exe
 
 
 ## Never asked questions
