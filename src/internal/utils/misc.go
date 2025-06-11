@@ -3,9 +3,12 @@ package utils
 import (
 	"golang.org/x/sys/windows/registry"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 )
 
 func StartsWith(s, prefix string) bool {
@@ -96,4 +99,13 @@ func AddToStartup() error {
 	err = key.SetStringValue("WinFastNav", exePath)
 	_ = key.Close()
 	return err
+}
+
+func OpenURI(uri string) error {
+	log.Printf(uri)
+	cmd := exec.Command("cmd", "/c", "start", uri)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow: true,
+	}
+	return cmd.Start()
 }

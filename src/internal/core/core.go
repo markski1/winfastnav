@@ -16,19 +16,6 @@ func HandleTextInput(query string) (retItems []globals.Resource, resultStr *stri
 		return nil, nil
 	}
 
-	// internet search
-	if query[0] == '@' {
-		s := fmt.Sprintf("Internet search: %s", query[1:])
-		s = utils.WrapTextByWords(s, 64)
-		return nil, &s
-	}
-
-	if utils.StartsWith(query, "!") {
-		s := fmt.Sprintf("QuickGPT: %s", query[1:])
-		s = utils.WrapTextByWords(s, 64)
-		return nil, &s
-	}
-
 	// math evaluation
 	if utils.IsMath(query) {
 		expr := strings.ReplaceAll(query, " ", "")
@@ -37,13 +24,26 @@ func HandleTextInput(query string) (retItems []globals.Resource, resultStr *stri
 		}
 	}
 
-	if globals.CurrentMode == globals.ModeProgramSearch {
+	switch globals.CurrentMode {
+	case globals.ModeSearchInternet:
+		s := fmt.Sprintf("Internet search: %s", query)
+		s = utils.WrapTextByWords(s, 64)
+		return nil, &s
+
+	case globals.ModeSearchProgram:
 		findItems := apps.FindAppResults(query)
 		return findItems, nil
-	} else if globals.CurrentMode == globals.ModeDocumentSearch {
+
+	case globals.ModeSearchDocument:
 		findItems := documents.FilterDocumentsByName(query)
 		return findItems, nil
+
+	case globals.ModeAskGPT:
+		s := fmt.Sprintf("Quick GPT: %s", query)
+		s = utils.WrapTextByWords(s, 64)
+		return nil, &s
 	}
+
 	return nil, nil
 }
 

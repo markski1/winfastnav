@@ -112,7 +112,7 @@ func FilterDocumentsByName(namePattern string) []g.Resource {
 }
 
 func OpenFile(path string) error {
-	cmd := exec.Command("cmd", "/c", "start", "", path)
+	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow: true,
 	}

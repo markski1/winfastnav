@@ -27,25 +27,17 @@ func listenHotkeys() {
 	hook.Register(hook.KeyDown, []string{"alt", "o"}, func(e hook.Event) {
 		if !g.Shown {
 			ui.ShowWindow()
-		} else {
-			if g.CurrentMode == g.ModeProgramSearch {
-				ui.SetMode(g.ModeChoosingProgram)
-			} else {
-				ui.SetMode(g.ModeProgramSearch)
-			}
-		}
-	})
-
-	hook.Register(hook.KeyDown, []string{"alt", "d"}, func(e hook.Event) {
-		if g.Shown {
-			ui.SetMode(g.ModeDocumentSearch)
 		}
 	})
 
 	// Register escape key to hide window when it's focused
 	hook.Register(hook.KeyDown, []string{"esc"}, func(e hook.Event) {
 		if g.Shown {
-			ui.HideWindow()
+			if !g.ShowingMain {
+				ui.ShowWindow()
+			} else {
+				ui.HideWindow()
+			}
 		}
 	})
 

@@ -83,7 +83,7 @@ func (wfnTheme) Size(s fyne.ThemeSizeName) float32 {
 	case theme.SizeNameSeparatorThickness:
 		return 2
 	case theme.SizeNameText:
-		return 12
+		return 13
 	case theme.SizeNameInputBorder:
 		return 1
 	default:

@@ -12,9 +12,13 @@ type Resource struct {
 }
 
 const (
-	ModeProgramSearch   = 0
-	ModeChoosingProgram = 1
-	ModeDocumentSearch  = 2
+	ModeSearchProgram  = 10
+	ModeSearchDocument = 11
+	ModeSearchInternet = 12
+
+	ModeChooseProgram = 21
+
+	ModeAskGPT = 31
 )
 
 var (
@@ -25,10 +29,12 @@ var (
 
 	FinishedCachingDocs = false
 
+	ShowingMain = true
+
 	NavApp      = app.New()
 	NavWindow   fyne.Window
 	Shown       bool = false
-	CurrentMode int  = ModeProgramSearch
+	CurrentMode int  = ModeSearchProgram
 
 	//go:embed assets/icon.ico
 	IconBytes []byte

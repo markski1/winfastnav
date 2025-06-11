@@ -132,7 +132,7 @@ func (sl *CustomList[T]) TypedKey(event *fyne.KeyEvent) {
 		sl.activateSelection()
 	case fyne.KeyDelete:
 		// Only for apps!
-		if g.CurrentMode == g.ModeProgramSearch {
+		if g.CurrentMode == g.ModeSearchProgram {
 			app := any(sl.Items[sl.selectedIndex]).(g.Resource)
 			itemName := app.Name
 			dlg := dialog.NewConfirm("Hide app",

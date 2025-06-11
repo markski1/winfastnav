@@ -1,5 +1,10 @@
 package ui
 
+/*
+	While not a major issue, there IS a lot of business code in here.
+	Eventually this should be moved to `core` and elsewhere.
+*/
+
 import (
 	_ "embed"
 	"fmt"
@@ -10,6 +15,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/getlantern/systray"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -28,6 +34,10 @@ var (
 	DocumentResultList *w.CustomList[g.Resource]
 	openProgramList    *w.CustomList[string]
 	inputContainer     *fyne.Container
+
+	okButton = widget.NewButton("OK", func() {
+		updateContent(nil)
+	})
 )
 
 func SetupUI() {
@@ -47,17 +57,25 @@ func SetupUI() {
 	resourceIcon := fyne.NewStaticResource("icon.ico", g.IconBytes)
 	g.NavWindow.SetIcon(resourceIcon)
 
+	g.NavWindow.Canvas().SetOnTypedKey(func(key *fyne.KeyEvent) {
+		if key.Name == fyne.KeyReturn || key.Name == fyne.KeyEnter {
+			if !g.ShowingMain {
+				okButton.OnTapped()
+			}
+		}
+	})
+
 	InputEntry = w.NewCustomEntry(func() {
 		fyne.Do(func() {
 			if len(InputEntry.Text) > 0 {
-				if g.CurrentMode == g.ModeProgramSearch {
+				if g.CurrentMode == g.ModeSearchProgram {
 					g.NavWindow.Canvas().Focus(ProgramResultList)
 				}
-				if g.CurrentMode == g.ModeDocumentSearch {
+				if g.CurrentMode == g.ModeSearchDocument {
 					g.NavWindow.Canvas().Focus(DocumentResultList)
 				}
 			}
-			if g.CurrentMode == g.ModeChoosingProgram {
+			if g.CurrentMode == g.ModeChooseProgram {
 				g.NavWindow.Canvas().Focus(openProgramList)
 			}
 		})
@@ -113,6 +131,7 @@ func SetupUI() {
 }
 
 func updateContent(aContent fyne.CanvasObject) {
+	g.ShowingMain = true
 	fyne.Do(func() {
 		g.NavWindow.SetContent(container.NewPadded(
 			container.NewBorder(
@@ -127,10 +146,10 @@ func updateContent(aContent fyne.CanvasObject) {
 }
 
 func showContent(aContent fyne.CanvasObject) {
+	g.ShowingMain = false
+
 	bottomVBox := container.NewVBox(
-		widget.NewButton("OK", func() {
-			updateContent(nil)
-		}),
+		okButton,
 	)
 
 	content := container.NewPadded(
@@ -148,7 +167,7 @@ func showContent(aContent fyne.CanvasObject) {
 func showMenu() {
 	content := container.NewVBox(
 		widget.NewButton("Help", func() {
-			showHelp()
+			ShowHelp()
 		}),
 		widget.NewButton("Settings", func() {
 			showSettings()
@@ -217,10 +236,10 @@ func showSettings() {
 	showContent(content)
 }
 
-func showHelp() {
+func ShowHelp() {
 	first := container.NewVBox(
 		widget.NewLabel(
-			"Shortcuts:\n" +
+			"Keys:\n" +
 				"ALT + O: Summon\n" +
 				"ESC: Hide\n" +
 				"Delete: Hide app",
@@ -228,15 +247,20 @@ func showHelp() {
 	)
 
 	second := container.NewVBox(
-		widget.NewLabel(
-			"Prefixes:\n"+
-				"@: Internet search\n"+
-				"!: GPT prompt\n",
-		),
-		widget.NewLabel(
-			"Modes:\n"+
-				"ALT + O: Program switch\n"+
-				"ALT + D: Document search\n",
+		widget.NewRichText(
+			&widget.TextSegment{
+				Text: "Command modes:\n" +
+					":p | Program search (default)\n" +
+					":d | Document search\n" +
+					":w | Internet search\n" +
+					":s | Switch to Window\n" +
+					":g | Quick GPT\n" +
+					":r | Re-index all resources\n" +
+					":x | Quit",
+				Style: widget.RichTextStyle{
+					TextStyle: fyne.TextStyle{Monospace: true},
+				},
+			},
 		),
 		widget.NewLabel(
 			"Math:\n"+
@@ -280,7 +304,7 @@ func MainShowText(text string) {
 }
 
 func updateResultList(input string) {
-	if g.CurrentMode == g.ModeChoosingProgram {
+	if g.CurrentMode == g.ModeChooseProgram {
 		return
 	}
 	listGet, mathResult := core.HandleTextInput(input)
@@ -288,11 +312,11 @@ func updateResultList(input string) {
 		MainShowText(*mathResult)
 		return
 	}
-	if g.CurrentMode == g.ModeProgramSearch {
+	if g.CurrentMode == g.ModeSearchProgram {
 		ProgramResultList.UpdateItems(listGet)
 		updateContent(ProgramResultList)
 		return
-	} else if g.CurrentMode == g.ModeDocumentSearch {
+	} else if g.CurrentMode == g.ModeSearchDocument {
 		DocumentResultList.UpdateItems(listGet)
 		updateContent(DocumentResultList)
 		return
@@ -302,9 +326,36 @@ func updateResultList(input string) {
 
 func updateSubmitContent(inputText string) {
 	if len(inputText) > 0 {
-		if inputText[0] == '@' {
-			return
+		if inputText[0] == ':' {
+			switch inputText[1] {
+			case 'w':
+				SetMode(g.ModeSearchInternet)
+			case 'g':
+				SetMode(g.ModeAskGPT)
+			case 'd':
+				SetMode(g.ModeSearchDocument)
+			case 'p':
+				SetMode(g.ModeSearchProgram)
+			case 's':
+				SetMode(g.ModeChooseProgram)
+			case 'h':
+				ShowHelp()
+				return
+			case 'x':
+				g.NavApp.Quit()
+			case 'r':
+				go documents.SetupDocs()
+				go apps.SetupApps()
+				MainShowText("Now re-indexing all programs and documents.")
+			}
+			// If text len > 4 then we can go ahead and execute as if it were a parameter
+			if len(inputText) > 4 && inputText[3] == ' ' {
+				inputText = inputText[4:]
+			} else {
+				return
+			}
 		}
+
 		// If it's a math op, set the result as the new input text
 		if utils.IsMath(inputText) {
 			inputText := strings.ReplaceAll(inputText, " ", "")
@@ -314,18 +365,17 @@ func updateSubmitContent(inputText string) {
 				return
 			}
 		}
-		if utils.StartsWith(inputText, "!") {
+		if g.CurrentMode == g.ModeAskGPT {
 			MainShowText("Please wait...")
-			prompt := inputText[1:]
 			go func(p string) {
 				result := utils.MakeGPTReq(p)
 				fyne.Do(func() {
 					MainShowText(result)
 				})
-			}(prompt)
+			}(inputText)
 			return
 		}
-		if g.CurrentMode == g.ModeChoosingProgram {
+		if g.CurrentMode == g.ModeChooseProgram {
 			num, err := strconv.Atoi(inputText)
 			if err == nil {
 				HideWindow()
@@ -333,10 +383,19 @@ func updateSubmitContent(inputText string) {
 				return
 			}
 		}
+		if g.CurrentMode == g.ModeSearchInternet {
+			err := utils.OpenURI(fmt.Sprintf(g.SearchString, url.QueryEscape(InputEntry.Text)))
+			if err == nil {
+				HideWindow()
+			} else {
+				MainShowText("Sorry, there was an error opening your web browser.")
+			}
+			return
+		}
 		g.NavWindow.Canvas().Focus(ProgramResultList)
 	}
 	// Otherwise attempt to focus the list.
-	if g.CurrentMode == g.ModeChoosingProgram {
+	if g.CurrentMode == g.ModeChooseProgram {
 		g.NavWindow.Canvas().Focus(openProgramList)
 		return
 	}
@@ -344,28 +403,40 @@ func updateSubmitContent(inputText string) {
 
 func SetMode(newMode int) {
 	g.CurrentMode = newMode
-	if newMode == g.ModeChoosingProgram {
+
+	switch newMode {
+	case g.ModeChooseProgram:
 		fyne.Do(func() {
 			InputEntry.SetPlaceHolder("Choose window...")
 		})
-		openAppList := apps.GetOpenWindows()
-		openProgramList.UpdateItems(openAppList)
+		openProgramList.UpdateItems(apps.GetOpenWindows())
 		updateContent(openProgramList)
-		return
-	}
-	if newMode == g.ModeProgramSearch {
+
+	case g.ModeSearchProgram:
 		fyne.Do(func() {
 			InputEntry.SetPlaceHolder("Program search...")
 		})
 		updateContent(nil)
-	}
-	if newMode == g.ModeDocumentSearch {
+
+	case g.ModeSearchDocument:
+		placeholder := "Document search..."
+		if !g.FinishedCachingDocs {
+			placeholder = "Document search [still caching]..."
+		}
 		fyne.Do(func() {
-			if g.FinishedCachingDocs {
-				InputEntry.SetPlaceHolder("Document search...")
-			} else {
-				InputEntry.SetPlaceHolder("Document search [still caching]...")
-			}
+			InputEntry.SetPlaceHolder(placeholder)
+		})
+		updateContent(nil)
+
+	case g.ModeSearchInternet:
+		fyne.Do(func() {
+			InputEntry.SetPlaceHolder("Internet search...")
+		})
+		updateContent(nil)
+
+	case g.ModeAskGPT:
+		fyne.Do(func() {
+			InputEntry.SetPlaceHolder("Quick GPT...")
 		})
 		updateContent(nil)
 	}
@@ -373,13 +444,14 @@ func SetMode(newMode int) {
 
 func ShowWindow() {
 	g.Shown = true
-	g.CurrentMode = g.ModeProgramSearch
+	g.CurrentMode = g.ModeSearchProgram
 	fyne.Do(func() {
 		InputEntry.SetPlaceHolder("Program search...")
 		g.NavWindow.Show()
 		time.Sleep(25 * time.Millisecond)
 		g.NavWindow.RequestFocus()
 		g.NavWindow.Canvas().Focus(InputEntry)
+		MainShowText(g.AppName + "\nEnter :h for help.")
 	})
 }
 
