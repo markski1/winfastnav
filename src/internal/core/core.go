@@ -11,7 +11,7 @@ import (
 	"winfastnav/internal/utils"
 )
 
-func HandleTextInput(query string) (retItems []interface{}, resultStr *string) {
+func HandleTextInput(query string) (retItems []globals.Resource, resultStr *string) {
 	if len(query) == 0 {
 		return nil, nil
 	}
@@ -19,6 +19,7 @@ func HandleTextInput(query string) (retItems []interface{}, resultStr *string) {
 	// internet search
 	if query[0] == '@' {
 		s := fmt.Sprintf("Internet search: %s", query[1:])
+		s = utils.WrapTextByWords(s, 64)
 		return nil, &s
 	}
 
@@ -38,21 +39,12 @@ func HandleTextInput(query string) (retItems []interface{}, resultStr *string) {
 
 	if globals.CurrentMode == globals.ModeProgramSearch {
 		findItems := apps.FindAppResults(query)
-		retItems = make([]interface{}, len(findItems))
-		for i, app := range findItems {
-			retItems[i] = app
-		}
-		return retItems, nil
+		return findItems, nil
 	} else if globals.CurrentMode == globals.ModeDocumentSearch {
 		findItems := documents.FilterDocumentsByName(query)
-		retItems = make([]interface{}, len(findItems))
-		for i, app := range findItems {
-			retItems[i] = app
-		}
-		return retItems, nil
-	} else {
-		return nil, nil
+		return findItems, nil
 	}
+	return nil, nil
 }
 
 // UpdateSearchSetting updates the saved search-string.

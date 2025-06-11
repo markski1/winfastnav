@@ -9,18 +9,18 @@ import (
 )
 
 func SetupApps() {
-	log.Printf("Obtaining Windows Applications")
+	log.Printf("Indexing Windows apps")
 	g.AppList = GetInstalledApps()
-	log.Printf("Done")
+	log.Printf("Windows apps indexed")
 }
 
-func FindAppResults(needle string) []g.App {
-	var results []g.App
+func FindAppResults(needle string) []g.Resource {
+	var results []g.Resource
 
 	needle = strings.ToLower(needle)
 
 	for _, app := range g.AppList {
-		if strings.Contains(strings.ToLower(app.Name), needle) || strings.Contains(strings.ToLower(app.ExecPath), needle) {
+		if strings.Contains(strings.ToLower(app.Name), needle) || strings.Contains(strings.ToLower(app.Filepath), needle) {
 			results = append(results, app)
 			if len(results) >= 30 {
 				break

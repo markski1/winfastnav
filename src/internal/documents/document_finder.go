@@ -13,12 +13,12 @@ import (
 )
 
 var (
-	DocumentCache []g.Document
+	DocumentCache []g.Resource
 )
 
 func SetupDocs() {
 	log.Print("Indexing documents")
-	DocumentCache = make([]g.Document, 0)
+	DocumentCache = make([]g.Resource, 0)
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -62,9 +62,9 @@ func SetupDocs() {
 				return nil
 			}
 
-			doc := g.Document{
-				Filename: info.Name(),
-				Path:     path,
+			doc := g.Resource{
+				Name:     info.Name(),
+				Filepath: path,
 			}
 			DocumentCache = append(DocumentCache, doc)
 
@@ -75,7 +75,7 @@ func SetupDocs() {
 			fmt.Printf("Warning: failed to search path %s: %v\n", searchPath, err)
 		}
 	}
-
+	log.Print("Documents indexed")
 	g.FinishedCachingDocs = true
 }
 
@@ -91,12 +91,12 @@ func isHiddenDir(info os.FileInfo) bool {
 	return false
 }
 
-func FilterDocumentsByName(namePattern string) []g.Document {
-	var filtered []g.Document
+func FilterDocumentsByName(namePattern string) []g.Resource {
+	var filtered []g.Resource
 	pattern := strings.ToLower(namePattern)
 
 	for _, doc := range DocumentCache {
-		if strings.Contains(strings.ToLower(doc.Filename), pattern) {
+		if strings.Contains(strings.ToLower(doc.Name), pattern) {
 			filtered = append(filtered, doc)
 		}
 		if len(filtered) >= 30 {

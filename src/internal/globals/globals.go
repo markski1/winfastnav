@@ -6,14 +6,9 @@ import (
 	"fyne.io/fyne/v2/app"
 )
 
-type App struct {
+type Resource struct {
 	Name     string
-	ExecPath string
-}
-
-type Document struct {
-	Filename string
-	Path     string
+	Filepath string
 }
 
 const (
@@ -24,7 +19,7 @@ const (
 
 var (
 	AppName       = "winfastnav v0.1"
-	AppList       []App
+	AppList       []Resource
 	ExecBlocklist []string
 	SearchString  string
 

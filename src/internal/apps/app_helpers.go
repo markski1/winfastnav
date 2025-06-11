@@ -24,7 +24,7 @@ func UnblockAllApplications() {
 	g.AppList = GetInstalledApps()
 }
 
-func BlockApplication(application g.App) {
+func BlockApplication(application g.Resource) {
 	for i, app := range g.AppList {
 		if app == application {
 			g.AppList = append(g.AppList[:i], g.AppList[i+1:]...)
@@ -32,7 +32,7 @@ func BlockApplication(application g.App) {
 		}
 	}
 
-	g.ExecBlocklist = append(g.ExecBlocklist, application.ExecPath)
+	g.ExecBlocklist = append(g.ExecBlocklist, application.Filepath)
 	jsonData, err := json.Marshal(g.ExecBlocklist)
 	if err != nil {
 		log.Printf("Error encoding list to JSON: %v", err)

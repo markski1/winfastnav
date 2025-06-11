@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/robotn/gohook"
-	"log"
 	"winfastnav/internal/apps"
 	"winfastnav/internal/documents"
 	g "winfastnav/internal/globals"
@@ -17,16 +16,14 @@ var (
 func main() {
 	settings.SetupSettings()
 	ui.SetupUI()
-	go setupTray()
+	setupTray()
 	go documents.SetupDocs()
 	go apps.SetupApps()
 	go listenHotkeys()
-	log.Printf("BEGIN")
 	g.NavApp.Run()
 }
 
 func listenHotkeys() {
-	log.Printf("Preparing hotkey listeners")
 	hook.Register(hook.KeyDown, []string{"alt", "o"}, func(e hook.Event) {
 		if !g.Shown {
 			ui.ShowWindow()
@@ -55,7 +52,6 @@ func listenHotkeys() {
 	keyboardHook = hook.Start()
 	defer hook.End()
 	<-hook.Process(keyboardHook)
-	log.Printf("Done")
 }
 
 func onExit() {

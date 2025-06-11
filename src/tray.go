@@ -3,14 +3,12 @@ package main
 import (
 	"fyne.io/fyne/v2"
 	"github.com/getlantern/systray"
-	"log"
 	"os"
 	g "winfastnav/internal/globals"
 	"winfastnav/ui"
 )
 
 func setupTray() {
-	log.Printf("Preparing tray")
 	go systray.Run(onReady, onExit)
 }
 
@@ -41,5 +39,4 @@ func onReady() {
 			}
 		}
 	}()
-	log.Printf("Done")
 }

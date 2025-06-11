@@ -13,7 +13,7 @@ import (
 	"winfastnav/internal/utils"
 )
 
-func GetInstalledApps() []g.App {
+func GetInstalledApps() []g.Resource {
 	keys := []registry.Key{
 		registry.LOCAL_MACHINE,
 		registry.CURRENT_USER,
@@ -44,10 +44,10 @@ func GetInstalledApps() []g.App {
 		"rundll32.exe",
 	}
 
-	var apps []g.App
+	var apps []g.Resource
 
 	// Somehow not found by default
-	apps = append(apps, g.App{Name: "Calculator", ExecPath: "calc.exe"})
+	apps = append(apps, g.Resource{Name: "Calculator", Filepath: "calc.exe"})
 
 	for _, keyRoot := range keys {
 		for _, basePath := range basePaths {
@@ -101,7 +101,7 @@ func GetInstalledApps() []g.App {
 				}
 
 				// Sometimes there's a comma and extra params, clear those out
-				apps = append(apps, g.App{Name: strings.TrimSpace(displayName), ExecPath: cleanExecutablePath(execPath)})
+				apps = append(apps, g.Resource{Name: strings.TrimSpace(displayName), Filepath: cleanExecutablePath(execPath)})
 				_ = subKey.Close()
 			}
 		}
@@ -109,12 +109,12 @@ func GetInstalledApps() []g.App {
 
 	apps = scanStartMenu(apps)
 
-	var cleanApps []g.App
+	var cleanApps []g.Resource
 
 	// remove undesirables
 	for i, app := range apps {
-		if !(!strings.Contains(app.ExecPath, ".exe") || utils.ContainsAny(app.ExecPath, skipIfSubstr) ||
-			utils.ContainsAny(strings.ToLower(app.Name), skipIfSubstr) || utils.ContainsAny(app.ExecPath, g.ExecBlocklist)) {
+		if !(!strings.Contains(app.Filepath, ".exe") || utils.ContainsAny(app.Filepath, skipIfSubstr) ||
+			utils.ContainsAny(strings.ToLower(app.Name), skipIfSubstr) || utils.ContainsAny(app.Filepath, g.ExecBlocklist)) {
 			cleanApps = append(cleanApps, apps[i])
 		}
 	}
@@ -168,7 +168,7 @@ func resolveShortcut(path string) (string, error) {
 }
 
 // Search for programs by grabbing .lnk's off the start menu
-func scanStartMenu(currentAppList []g.App) []g.App {
+func scanStartMenu(currentAppList []g.Resource) []g.Resource {
 	dirs := []string{
 		filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
 		filepath.Join(os.Getenv("PROGRAMDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
@@ -187,12 +187,12 @@ func scanStartMenu(currentAppList []g.App) []g.App {
 
 			// No repeats
 			for _, app := range currentAppList {
-				if strings.EqualFold(app.ExecPath, target) || strings.EqualFold(app.Name, name) {
+				if strings.EqualFold(app.Filepath, target) || strings.EqualFold(app.Name, name) {
 					return nil
 				}
 			}
 
-			currentAppList = append(currentAppList, g.App{Name: strings.TrimSpace(name), ExecPath: strings.ToLower(target)})
+			currentAppList = append(currentAppList, g.Resource{Name: strings.TrimSpace(name), Filepath: strings.ToLower(target)})
 			return nil
 		})
 		if err != nil {

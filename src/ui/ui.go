@@ -24,15 +24,13 @@ import (
 
 var (
 	InputEntry         *w.CustomEntry
-	ProgramResultList  *w.CustomList[g.App]
-	DocumentResultList *w.CustomList[g.Document]
+	ProgramResultList  *w.CustomList[g.Resource]
+	DocumentResultList *w.CustomList[g.Resource]
 	openProgramList    *w.CustomList[string]
 	inputContainer     *fyne.Container
 )
 
 func SetupUI() {
-	log.Printf("Preparing UI")
-
 	g.NavApp.Settings().SetTheme(&wfnTheme{})
 
 	// Attempt to create a borderless window as a 'splash'.
@@ -80,8 +78,8 @@ func SetupUI() {
 		InputEntry,
 	)
 
-	ProgramResultList = w.NewCustomList([]g.App{}, InputEntry, func(app g.App) string { return app.Name }, func(idx int, app g.App) {
-		err := apps.OpenProgram(app.ExecPath)
+	ProgramResultList = w.NewCustomList([]g.Resource{}, InputEntry, func(app g.Resource) string { return app.Name }, func(idx int, app g.Resource) {
+		err := apps.OpenProgram(app.Filepath)
 		if err != nil {
 			log.Printf("Error opening program: %v", err)
 			MainShowText("Sorry, there was an error opening the program.")
@@ -90,8 +88,8 @@ func SetupUI() {
 		HideWindow()
 	})
 
-	DocumentResultList = w.NewCustomList([]g.Document{}, InputEntry, func(doc g.Document) string { return doc.Filename }, func(idx int, doc g.Document) {
-		err := documents.OpenFile(doc.Path)
+	DocumentResultList = w.NewCustomList([]g.Resource{}, InputEntry, func(doc g.Resource) string { return doc.Name }, func(idx int, doc g.Resource) {
+		err := documents.OpenFile(doc.Filepath)
 		if err != nil {
 			log.Printf("Error opening file: %v", err)
 			MainShowText("Sorry, there was an error opening the file.")
@@ -112,7 +110,6 @@ func SetupUI() {
 	g.NavWindow.SetCloseIntercept(func() {
 		HideWindow()
 	})
-	log.Printf("Done")
 }
 
 func updateContent(aContent fyne.CanvasObject) {
@@ -271,23 +268,11 @@ func updateResultList(input string) {
 		return
 	}
 	if g.CurrentMode == g.ModeProgramSearch {
-		appList := make([]g.App, 0, len(listGet))
-		for _, item := range listGet {
-			if app, ok := item.(g.App); ok {
-				appList = append(appList, app)
-			}
-		}
-		ProgramResultList.UpdateItems(appList)
+		ProgramResultList.UpdateItems(listGet)
 		updateContent(ProgramResultList)
 		return
 	} else if g.CurrentMode == g.ModeDocumentSearch {
-		docList := make([]g.Document, 0, len(listGet))
-		for _, item := range listGet {
-			if doc, ok := item.(g.Document); ok {
-				docList = append(docList, doc)
-			}
-		}
-		DocumentResultList.UpdateItems(docList)
+		DocumentResultList.UpdateItems(listGet)
 		updateContent(DocumentResultList)
 		return
 	}
