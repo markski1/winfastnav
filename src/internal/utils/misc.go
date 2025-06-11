@@ -1,8 +1,10 @@
 package utils
 
 import (
+	"golang.org/x/sys/windows/registry"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -76,4 +78,22 @@ func ContainsAny(s string, subs []string) bool {
 		}
 	}
 	return false
+}
+
+func AddToStartup() error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return err
+	}
+
+	key, err := registry.OpenKey(registry.CURRENT_USER,
+		`Software\Microsoft\Windows\CurrentVersion\Run`,
+		registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+
+	err = key.SetStringValue("WinFastNav", exePath)
+	_ = key.Close()
+	return err
 }

@@ -18,7 +18,7 @@ const (
 )
 
 var (
-	AppName       = "winfastnav v0.1"
+	AppName       = "winfastnav v0.2"
 	AppList       []Resource
 	ExecBlocklist []string
 	SearchString  string

@@ -16,9 +16,9 @@ type wfnTheme struct{}
 func (wfnTheme) Color(c fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
 	switch c {
 	case theme.ColorNameBackground:
-		return color.NRGBA{R: 0x1a, G: 0x18, B: 0x18, A: 0xff}
+		return color.NRGBA{R: 0x1a, G: 0x18, B: 0x18, A: 0xaa}
 	case theme.ColorNameButton:
-		return color.NRGBA{R: 0x46, G: 0x38, B: 0x38, A: 0x0}
+		return color.NRGBA{R: 0x46, G: 0x38, B: 0x38, A: 0xff}
 	case theme.ColorNameDisabledButton:
 		return color.NRGBA{R: 0x26, G: 0x26, B: 0x26, A: 0xff}
 	case theme.ColorNameDisabled:
@@ -75,17 +75,17 @@ func (wfnTheme) Size(s fyne.ThemeSizeName) float32 {
 	case theme.SizeNameInlineIcon:
 		return 20
 	case theme.SizeNamePadding:
-		return 2
+		return 3
 	case theme.SizeNameScrollBar:
 		return 10
 	case theme.SizeNameScrollBarSmall:
 		return 3
 	case theme.SizeNameSeparatorThickness:
-		return 1
+		return 2
 	case theme.SizeNameText:
 		return 12
 	case theme.SizeNameInputBorder:
-		return 2
+		return 1
 	default:
 		return theme.DefaultTheme().Size(s)
 	}

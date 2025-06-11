@@ -182,8 +182,27 @@ func showSettings() {
 	blocklistBox := container.NewHBox(
 		widget.NewLabel(fmt.Sprintf("Blocklist (%d)", len(g.ExecBlocklist))),
 		widget.NewButton("Clear Blocklist", func() {
-			apps.UnblockAllApplications()
-			dialog.NewInformation("Blocklist cleared", "All apps have been unblocked", g.NavWindow).Show()
+			dlg := dialog.NewConfirm("Clear Blocklist",
+				"Are you sure you want to unblock all blocked apps?",
+				func(confirmed bool) {
+					if confirmed {
+						apps.UnblockAllApplications()
+						dialog.NewInformation("Blocklist cleared", "All apps have been unblocked", g.NavWindow).Show()
+					}
+				}, g.NavWindow)
+			dlg.Show()
+		}),
+	)
+
+	startupBox := container.NewVBox(
+		widget.NewLabel("Start with Windows"),
+		widget.NewLabel("Note: Put the .exe file in it's desired location."),
+		widget.NewButton("Add to Startup", func() {
+			err := utils.AddToStartup()
+			if err != nil {
+				MainShowText("Error adding to startup: " + err.Error())
+			}
+			MainShowText("winfastnav added to startup!")
 		}),
 	)
 
@@ -191,6 +210,8 @@ func showSettings() {
 		searchStringBox,
 		widget.NewSeparator(),
 		blocklistBox,
+		widget.NewSeparator(),
+		startupBox,
 	)
 
 	showContent(content)

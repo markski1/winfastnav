@@ -206,8 +206,8 @@ func (sl *CustomList[T]) scrollToSelection() {
 		return
 	}
 
-	// Get item height, accountingfor padding. Tried a few numbers, 1.065 does well.
-	itemHeight := sl.renderer.items[0].container.MinSize().Height * 1.065
+	// Get item height, accountingfor padding. Tried a few numbers, 1.09 does well.
+	itemHeight := sl.renderer.items[0].container.MinSize().Height * 1.09
 
 	selectedPosition := float32(sl.selectedIndex) * itemHeight
 	scrollHeight := sl.renderer.scroll.Size().Height

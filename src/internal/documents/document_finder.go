@@ -26,10 +26,12 @@ func SetupDocs() {
 		return
 	}
 
-	searchPaths := []string{
-		filepath.Join(homeDir, "Documents"),
-		filepath.Join(homeDir, "Desktop"),
-		filepath.Join(homeDir, "Downloads"),
+	skipIfContains := []string{
+		"\\node_modules\\",
+		"\\venv\\",
+		"\\__pycache__\\",
+		"\\sdk-manifests\\",
+		"\\sdk\\",
 	}
 
 	relevantExtensions := []string{
@@ -44,37 +46,39 @@ func SetupDocs() {
 		".pptx",
 	}
 
-	for _, searchPath := range searchPaths {
-		err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil
-			}
-
-			if info.IsDir() {
-				if isHiddenDir(info) {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-
-			ext := strings.ToLower(filepath.Ext(path))
-			if !utils.ContainsAny(ext, relevantExtensions) {
-				return nil
-			}
-
-			doc := g.Resource{
-				Name:     info.Name(),
-				Filepath: path,
-			}
-			DocumentCache = append(DocumentCache, doc)
-
-			return nil
-		})
-
+	err = filepath.Walk(homeDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			fmt.Printf("Warning: failed to search path %s: %v\n", searchPath, err)
+			return nil
 		}
+
+		if info.IsDir() {
+			if isHiddenDir(info) {
+				return filepath.SkipDir
+			}
+			if utils.ContainsAny(path, skipIfContains) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(path))
+		if !utils.ContainsAny(ext, relevantExtensions) {
+			return nil
+		}
+
+		doc := g.Resource{
+			Name:     info.Name(),
+			Filepath: path,
+		}
+		DocumentCache = append(DocumentCache, doc)
+
+		return nil
+	})
+
+	if err != nil {
+		fmt.Printf("Warning: failed to search path %s: %v\n", homeDir, err)
 	}
+
 	log.Print("Documents indexed")
 	g.FinishedCachingDocs = true
 }
@@ -109,5 +113,8 @@ func FilterDocumentsByName(namePattern string) []g.Resource {
 
 func OpenFile(path string) error {
 	cmd := exec.Command("cmd", "/c", "start", "", path)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow: true,
+	}
 	return cmd.Start()
 }
