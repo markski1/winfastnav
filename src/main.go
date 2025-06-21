@@ -41,12 +41,12 @@ func listenHotkeys() {
 		}
 	})
 
-	keyboardHook = hook.Start()
-	defer hook.End()
+	keyboardHook = hook.Start(75)
 	<-hook.Process(keyboardHook)
 }
 
 func onExit() {
+	hook.End()
 	if keyboardHook != nil {
 		close(keyboardHook)
 	}

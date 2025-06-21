@@ -328,6 +328,8 @@ func updateResultList(input string) {
 func updateSubmitContent(inputText string) {
 	if len(inputText) > 0 {
 		if inputText[0] == ':' {
+			InputEntry.SetText("")
+
 			switch inputText[1] {
 			case 'w':
 				SetMode(g.ModeSearchInternet)
@@ -345,12 +347,12 @@ func updateSubmitContent(inputText string) {
 			case 'x':
 				g.NavApp.Quit()
 			case 'r':
+				MainShowText("Re-indexing programs and documents.")
 				go documents.SetupDocs()
 				go apps.SetupApps()
-				MainShowText("Now re-indexing all programs and documents.")
+			case 'q':
+				HideWindow()
 			}
-
-			InputEntry.SetText("")
 			return
 		}
 
@@ -446,7 +448,7 @@ func ShowWindow() {
 	fyne.Do(func() {
 		InputEntry.SetPlaceHolder("Program search...")
 		g.NavWindow.Show()
-		time.Sleep(25 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		g.NavWindow.RequestFocus()
 		g.NavWindow.Canvas().Focus(InputEntry)
 		MainShowText(g.AppName + "\nEnter :h for help.")
