@@ -255,6 +255,7 @@ func ShowHelp() {
 					":w | Internet search\n" +
 					":s | Switch to Window\n" +
 					":g | Quick GPT\n" +
+					":c | Run command\n" +
 					":r | Re-index all resources\n" +
 					":x | Quit",
 				Style: widget.RichTextStyle{
@@ -446,12 +447,14 @@ func ShowWindow() {
 	g.Shown = true
 	g.CurrentMode = g.ModeSearchProgram
 	fyne.Do(func() {
-		InputEntry.SetPlaceHolder("Program search...")
 		g.NavWindow.Show()
-		time.Sleep(50 * time.Millisecond)
-		g.NavWindow.RequestFocus()
-		g.NavWindow.Canvas().Focus(InputEntry)
+		InputEntry.SetPlaceHolder("Program search...")
 		MainShowText(g.AppName + "\nEnter :h for help.")
+		for i := 0; i < 3; i++ {
+			time.Sleep(33 * time.Millisecond)
+			g.NavWindow.RequestFocus()
+			g.NavWindow.Canvas().Focus(InputEntry)
+		}
 	})
 }
 
