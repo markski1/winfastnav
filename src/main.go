@@ -1,12 +1,16 @@
 package main
 
 import (
-	"github.com/robotn/gohook"
+	"log"
+	"os"
+	"runtime/debug"
 	"winfastnav/internal/apps"
 	"winfastnav/internal/documents"
 	g "winfastnav/internal/globals"
 	"winfastnav/internal/settings"
 	"winfastnav/ui"
+
+	"github.com/robotn/gohook"
 )
 
 var (
@@ -14,6 +18,19 @@ var (
 )
 
 func main() {
+	// Setup file log for panics to try and hunt down a crash when resuming from sleep.
+	defer func() {
+		if r := recover(); r != nil {
+			_ = os.MkdirAll("logs", 0o755)
+			f, _ := os.Create("logs/panic.log")
+			_ = f.Close()
+			log.Printf("panic: %v\n%s", r, debug.Stack())
+			if f != nil {
+				_, _ = f.Write(debug.Stack())
+			}
+		}
+	}()
+
 	settings.SetupSettings()
 	ui.SetupUI()
 	setupTray()
