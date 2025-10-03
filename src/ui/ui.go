@@ -8,12 +8,6 @@ package ui
 import (
 	_ "embed"
 	"fmt"
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/widget"
-	"github.com/getlantern/systray"
 	"log"
 	"net/url"
 	"os"
@@ -26,6 +20,13 @@ import (
 	g "winfastnav/internal/globals"
 	"winfastnav/internal/utils"
 	w "winfastnav/ui/widgets"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/widget"
+	"github.com/getlantern/systray"
 )
 
 var (
@@ -255,7 +256,6 @@ func ShowHelp() {
 					":w | Internet search\n" +
 					":s | Switch to Window\n" +
 					":g | Quick GPT\n" +
-					":c | Run command\n" +
 					":r | Re-index all resources\n" +
 					":x | Quit",
 				Style: widget.RichTextStyle{
@@ -342,9 +342,6 @@ func updateSubmitContent(inputText string) {
 				SetMode(g.ModeSearchProgram)
 			case 's':
 				SetMode(g.ModeChooseProgram)
-			case 'h':
-				ShowHelp()
-				return
 			case 'x':
 				g.NavApp.Quit()
 			case 'r':
@@ -449,7 +446,7 @@ func ShowWindow() {
 	fyne.Do(func() {
 		g.NavWindow.Show()
 		InputEntry.SetPlaceHolder("Program search...")
-		MainShowText(g.AppName + "\nEnter :h for help.")
+		MainShowText(g.AppName + "\nMenu -> Help")
 		for i := 0; i < 3; i++ {
 			time.Sleep(33 * time.Millisecond)
 			g.NavWindow.RequestFocus()

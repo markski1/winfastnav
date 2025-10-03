@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"winfastnav/internal/apps"
 	"winfastnav/internal/documents"
@@ -21,13 +22,14 @@ func main() {
 	// Setup file log for panics to try and hunt down a crash when resuming from sleep.
 	defer func() {
 		if r := recover(); r != nil {
-			_ = os.MkdirAll("logs", 0o755)
-			f, _ := os.Create("logs/panic.log")
-			_ = f.Close()
+			appData := os.Getenv("APPDATA")
+			dir := filepath.Join(appData, "winfastnav")
+			f, _ := os.Create(filepath.Join(dir, "panic.log"))
 			log.Printf("panic: %v\n%s", r, debug.Stack())
 			if f != nil {
 				_, _ = f.Write(debug.Stack())
 			}
+			_ = f.Close()
 		}
 	}()
 
