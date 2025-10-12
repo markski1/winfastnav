@@ -14,6 +14,144 @@ import (
 	"unicode"
 )
 
+func HasUnit(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	s = strings.ToLower(s)
+	units := []string{
+		"kg", "g",
+		"lb", "lbs", "pound",
+		"oz", "ounce", "ounces",
+		"cm", "mm", "m",
+		"in", "inch", "inches",
+		"ft", "foot", "feet",
+	}
+
+	for _, u := range units {
+		if strings.Contains(s, u) {
+			return true
+		}
+	}
+	return false
+}
+
+func ConvertUnit(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ReplaceAll(s, ",", "")
+	// allow for spaces by just ignoring them
+	s = strings.ReplaceAll(s, " ", "")
+
+	// grab the number
+	i := 0
+	for i < len(s) && (s[i] == '.' || (s[i] >= '0' && s[i] <= '9')) {
+		i++
+	}
+	// return if no number
+	if i == 0 || i == len(s) {
+		return ""
+	}
+	numStr, unit := s[:i], s[i:]
+	val, err := strconv.ParseFloat(numStr, 64)
+	if err != nil || val < 0 {
+		return ""
+	}
+
+	// normalize unit synonyms
+	switch unit {
+	case "pound", "pounds":
+		unit = "lb"
+	case "ounce", "ounces":
+		unit = "oz"
+	case "inch", "inches":
+		unit = "in"
+	case "foot", "feet":
+		unit = "ft"
+	case "lbs":
+		unit = "lb"
+	}
+
+	var out []string
+	f2 := func(f float64) string {
+		// trim .00
+		s := fmt.Sprintf("%.2f", f)
+		if strings.HasSuffix(s, ".00") {
+			return strings.TrimSuffix(s, ".00")
+		}
+		return s
+	}
+
+	switch unit {
+	// mass conversions
+	case "kg":
+		out = append(out, f2(val)+" kg")
+		out = append(out, f2(val*1000)+" g")
+		out = append(out, f2(val*2.2046226218)+" lb")
+		out = append(out, f2(val*35.27396195)+" oz")
+	case "g":
+		kg := val / 1000
+		out = append(out, f2(kg)+" kg")
+		out = append(out, f2(val)+" g")
+		out = append(out, f2(kg*2.2046226218)+" lb")
+		out = append(out, f2(kg*35.27396195)+" oz")
+	case "lb":
+		kg := val / 2.2046226218
+		out = append(out, f2(kg)+" kg")
+		out = append(out, f2(kg*1000)+" g")
+		out = append(out, f2(val)+" lb")
+		out = append(out, f2(val*16)+" oz")
+	case "oz":
+		lb := val / 16
+		kg := lb / 2.2046226218
+		out = append(out, f2(kg)+" kg")
+		out = append(out, f2(kg*1000)+" g")
+		out = append(out, f2(lb)+" lb")
+		out = append(out, f2(val)+" oz")
+
+	// length conversions
+	case "m":
+		out = append(out, f2(val)+" m")
+		out = append(out, f2(val*100)+" cm")
+		out = append(out, f2(val*1000)+" mm")
+		out = append(out, f2(val*39.37007874)+" in")
+		out = append(out, f2(val*3.280839895)+" ft")
+	case "cm":
+		m := val / 100
+		out = append(out, f2(m)+" m")
+		out = append(out, f2(val)+" cm")
+		out = append(out, f2(val*10)+" mm")
+		out = append(out, f2(m*39.37007874)+" in")
+		out = append(out, f2(m*3.280839895)+" ft")
+	case "mm":
+		cm := val / 10
+		m := cm / 100
+		out = append(out, f2(m)+" m")
+		out = append(out, f2(cm)+" cm")
+		out = append(out, f2(val)+" mm")
+		out = append(out, f2(m*39.37007874)+" in")
+		out = append(out, f2(m*3.280839895)+" ft")
+	case "in":
+		m := val / 39.37007874
+		out = append(out, f2(m)+" m")
+		out = append(out, f2(m*100)+" cm")
+		out = append(out, f2(m*1000)+" mm")
+		out = append(out, f2(val)+" in")
+		out = append(out, f2(val/12)+" ft")
+	case "ft":
+		m := val / 3.280839895
+		out = append(out, f2(m)+" m")
+		out = append(out, f2(m*100)+" cm")
+		out = append(out, f2(m*1000)+" mm")
+		out = append(out, f2(val*12)+" in")
+		out = append(out, f2(val)+" ft")
+
+	default:
+		return ""
+	}
+
+	return strings.Join(out, "\n")
+}
+
 func IsMath(s string) bool {
 	if len(s) == 0 {
 		return false

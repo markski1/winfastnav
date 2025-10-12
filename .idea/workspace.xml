@@ -5,10 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="75c87852-f2f0-44d8-814c-622ee70f8978" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/winfastnav.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/winfastnav.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/ui/ui.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/ui/ui.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/internal/core/core.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/core/core.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/internal/utils/math.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/utils/math.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -77,8 +76,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-gosdk-f466f9b0953e-3d2cccfc42a2-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-252.26199.158" />
-        <option value="bundled-js-predefined-d6986cc7102b-9c94529fcfe0-JavaScript-GO-252.26199.158" />
+        <option value="bundled-gosdk-f466f9b0953e-146d08934cbf-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-252.26830.102" />
+        <option value="bundled-js-predefined-d6986cc7102b-3aa1da707db6-JavaScript-GO-252.26830.102" />
       </set>
     </attachedChunks>
   </component>

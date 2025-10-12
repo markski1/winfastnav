@@ -2,7 +2,6 @@ package core
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"winfastnav/internal/documents"
 
@@ -17,16 +16,25 @@ func HandleTextInput(query string) (retItems []globals.Resource, resultStr *stri
 		return nil, nil
 	}
 
-	// math evaluation
+	// evaluations
 	if query[0] == '=' {
-		log.Printf("math detected")
+		result := ""
 		expr := strings.ReplaceAll(query, "=", "")
+		// Try to do math eval
 		if utils.IsMath(expr) {
 			expr := strings.ReplaceAll(expr, " ", "")
-			if val, err := utils.EvalMath(expr); err == nil {
-				return nil, &val
+			if result, err := utils.EvalMath(expr); err == nil {
+				return nil, &result
 			}
 		}
+		// Otherwise try a conversion
+		if utils.HasUnit(expr) {
+			result = utils.ConvertUnit(expr)
+			return nil, &result
+		}
+		// Otherwise show an explanation
+		result = "Enter a mathematical expression (2+2) or unit to convert (20in)."
+		return nil, &result
 	}
 
 	switch globals.CurrentMode {
