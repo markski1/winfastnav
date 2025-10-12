@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"winfastnav/internal/documents"
 
@@ -17,10 +18,14 @@ func HandleTextInput(query string) (retItems []globals.Resource, resultStr *stri
 	}
 
 	// math evaluation
-	if utils.IsMath(query) {
-		expr := strings.ReplaceAll(query, " ", "")
-		if val, err := utils.EvalMath(expr); err == nil {
-			return nil, &val
+	if query[0] == '=' {
+		log.Printf("math detected")
+		expr := strings.ReplaceAll(query, "=", "")
+		if utils.IsMath(expr) {
+			expr := strings.ReplaceAll(expr, " ", "")
+			if val, err := utils.EvalMath(expr); err == nil {
+				return nil, &val
+			}
 		}
 	}
 

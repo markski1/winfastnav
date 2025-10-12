@@ -355,14 +355,18 @@ func updateSubmitContent(inputText string) {
 		}
 
 		// If it's a math op, set the result as the new input text
-		if utils.IsMath(inputText) {
-			inputText := strings.ReplaceAll(inputText, " ", "")
-			result, err := utils.EvalMath(inputText)
-			if err == nil {
-				InputEntry.SetText(result)
-				return
+		if inputText[0] == '=' {
+			expr := strings.ReplaceAll(inputText, "=", "")
+			if utils.IsMath(expr) {
+				expr := strings.ReplaceAll(expr, " ", "")
+				result, err := utils.EvalMath(expr)
+				if err == nil {
+					InputEntry.SetText(result)
+					return
+				}
 			}
 		}
+
 		if g.CurrentMode == g.ModeAskGPT {
 			MainShowText("Please wait...")
 			go func(p string) {
