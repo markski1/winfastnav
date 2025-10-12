@@ -26,6 +26,15 @@ func HasUnit(s string) bool {
 		"cm", "mm", "m",
 		"in", "inch", "inches",
 		"ft", "foot", "feet",
+		// temperature
+		"c", "celsius",
+		"f", "fahrenheit",
+		"k", "kelvin",
+		// speed
+		"m/s", "mps", "ms-1", "m·s-1",
+		"km/h", "kph", "kmh",
+		"mph",
+		"ft/s", "fps",
 	}
 
 	for _, u := range units {
@@ -69,6 +78,20 @@ func ConvertUnit(s string) string {
 		unit = "ft"
 	case "lbs":
 		unit = "lb"
+	// temperature synonyms
+	case "celsius":
+		unit = "c"
+	case "fahrenheit":
+		unit = "f"
+	case "kelvin":
+		unit = "k"
+	// speed synonyms
+	case "kph", "kmh":
+		unit = "km/h"
+	case "mps", "ms-1", "m·s-1":
+		unit = "m/s"
+	case "fps", "ft/s":
+		unit = "ft/s"
 	}
 
 	var out []string
@@ -144,6 +167,67 @@ func ConvertUnit(s string) string {
 		out = append(out, f2(m*1000)+" mm")
 		out = append(out, f2(val*12)+" in")
 		out = append(out, f2(val)+" ft")
+
+	// temperature conversions
+	case "c":
+		c := val
+		f := c*9.0/5.0 + 32.0
+		k := c + 273.15
+		out = append(out, f2(c)+" °C")
+		out = append(out, f2(f)+" °F")
+		out = append(out, f2(k)+" K")
+	case "f":
+		fv := val
+		c := (fv - 32.0) * 5.0 / 9.0
+		k := c + 273.15
+		out = append(out, f2(c)+" °C")
+		out = append(out, f2(fv)+" °F")
+		out = append(out, f2(k)+" K")
+	case "k":
+		kv := val
+		c := kv - 273.15
+		f := c*9.0/5.0 + 32.0
+		out = append(out, f2(c)+" °C")
+		out = append(out, f2(f)+" °F")
+		out = append(out, f2(kv)+" K")
+
+	// speed conversions
+	case "m/s":
+		ms := val
+		kmh := ms * 3.6
+		mph := ms * 2.2369362921
+		fts := ms * 3.280839895
+		out = append(out, f2(ms)+" m/s")
+		out = append(out, f2(kmh)+" km/h")
+		out = append(out, f2(mph)+" mph")
+		out = append(out, f2(fts)+" ft/s")
+	case "km/h":
+		kmh := val
+		ms := kmh / 3.6
+		mph := kmh * 0.6213711922
+		fts := ms * 3.280839895
+		out = append(out, f2(ms)+" m/s")
+		out = append(out, f2(kmh)+" km/h")
+		out = append(out, f2(mph)+" mph")
+		out = append(out, f2(fts)+" ft/s")
+	case "mph":
+		mph := val
+		kmh := mph * 1.609344
+		ms := kmh / 3.6
+		fts := ms * 3.280839895
+		out = append(out, f2(ms)+" m/s")
+		out = append(out, f2(kmh)+" km/h")
+		out = append(out, f2(mph)+" mph")
+		out = append(out, f2(fts)+" ft/s")
+	case "ft/s":
+		fts := val
+		ms := fts / 3.280839895
+		kmh := ms * 3.6
+		mph := ms * 2.2369362921
+		out = append(out, f2(ms)+" m/s")
+		out = append(out, f2(kmh)+" km/h")
+		out = append(out, f2(mph)+" mph")
+		out = append(out, f2(fts)+" ft/s")
 
 	default:
 		return ""

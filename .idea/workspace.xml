@@ -6,7 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="75c87852-f2f0-44d8-814c-622ee70f8978" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/internal/core/core.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/core/core.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/internal/utils/math.go" beforeDir="false" afterPath="$PROJECT_DIR$/src/internal/utils/math.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
