@@ -33,7 +33,10 @@ func HandleTextInput(query string) (retItems []globals.Resource, resultStr *stri
 			return nil, &result
 		}
 		// Otherwise show an explanation
-		result = "Enter a mathematical expression (2+2) or unit to convert (20in)."
+		result = "Enter a mathematical expression (2+2) or unit to convert (20in).\n" +
+			"\n" +
+			"Supported units: Weight, length, speed and temperature.\n" +
+			"Supported operators: +, -, *, /"
 		return nil, &result
 	}
 

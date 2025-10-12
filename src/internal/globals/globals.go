@@ -2,6 +2,7 @@ package globals
 
 import (
 	_ "embed"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 )
@@ -22,7 +23,7 @@ const (
 )
 
 var (
-	AppName       = "winfastnav v0.3"
+	AppName       = "winfastnav v0.4"
 	AppList       []Resource
 	ExecBlocklist []string
 	SearchString  string

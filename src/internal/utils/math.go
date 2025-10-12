@@ -107,21 +107,18 @@ func ConvertUnit(s string) string {
 	switch unit {
 	// mass conversions
 	case "kg":
-		out = append(out, f2(val)+" kg")
 		out = append(out, f2(val*1000)+" g")
 		out = append(out, f2(val*2.2046226218)+" lb")
 		out = append(out, f2(val*35.27396195)+" oz")
 	case "g":
 		kg := val / 1000
 		out = append(out, f2(kg)+" kg")
-		out = append(out, f2(val)+" g")
 		out = append(out, f2(kg*2.2046226218)+" lb")
 		out = append(out, f2(kg*35.27396195)+" oz")
 	case "lb":
 		kg := val / 2.2046226218
 		out = append(out, f2(kg)+" kg")
 		out = append(out, f2(kg*1000)+" g")
-		out = append(out, f2(val)+" lb")
 		out = append(out, f2(val*16)+" oz")
 	case "oz":
 		lb := val / 16
@@ -129,11 +126,9 @@ func ConvertUnit(s string) string {
 		out = append(out, f2(kg)+" kg")
 		out = append(out, f2(kg*1000)+" g")
 		out = append(out, f2(lb)+" lb")
-		out = append(out, f2(val)+" oz")
 
 	// length conversions
 	case "m":
-		out = append(out, f2(val)+" m")
 		out = append(out, f2(val*100)+" cm")
 		out = append(out, f2(val*1000)+" mm")
 		out = append(out, f2(val*39.37007874)+" in")
@@ -141,7 +136,6 @@ func ConvertUnit(s string) string {
 	case "cm":
 		m := val / 100
 		out = append(out, f2(m)+" m")
-		out = append(out, f2(val)+" cm")
 		out = append(out, f2(val*10)+" mm")
 		out = append(out, f2(m*39.37007874)+" in")
 		out = append(out, f2(m*3.280839895)+" ft")
@@ -150,7 +144,6 @@ func ConvertUnit(s string) string {
 		m := cm / 100
 		out = append(out, f2(m)+" m")
 		out = append(out, f2(cm)+" cm")
-		out = append(out, f2(val)+" mm")
 		out = append(out, f2(m*39.37007874)+" in")
 		out = append(out, f2(m*3.280839895)+" ft")
 	case "in":
@@ -158,7 +151,6 @@ func ConvertUnit(s string) string {
 		out = append(out, f2(m)+" m")
 		out = append(out, f2(m*100)+" cm")
 		out = append(out, f2(m*1000)+" mm")
-		out = append(out, f2(val)+" in")
 		out = append(out, f2(val/12)+" ft")
 	case "ft":
 		m := val / 3.280839895
@@ -166,14 +158,12 @@ func ConvertUnit(s string) string {
 		out = append(out, f2(m*100)+" cm")
 		out = append(out, f2(m*1000)+" mm")
 		out = append(out, f2(val*12)+" in")
-		out = append(out, f2(val)+" ft")
 
 	// temperature conversions
 	case "c":
 		c := val
 		f := c*9.0/5.0 + 32.0
 		k := c + 273.15
-		out = append(out, f2(c)+" °C")
 		out = append(out, f2(f)+" °F")
 		out = append(out, f2(k)+" K")
 	case "f":
@@ -181,7 +171,6 @@ func ConvertUnit(s string) string {
 		c := (fv - 32.0) * 5.0 / 9.0
 		k := c + 273.15
 		out = append(out, f2(c)+" °C")
-		out = append(out, f2(fv)+" °F")
 		out = append(out, f2(k)+" K")
 	case "k":
 		kv := val
@@ -189,7 +178,6 @@ func ConvertUnit(s string) string {
 		f := c*9.0/5.0 + 32.0
 		out = append(out, f2(c)+" °C")
 		out = append(out, f2(f)+" °F")
-		out = append(out, f2(kv)+" K")
 
 	// speed conversions
 	case "m/s":
@@ -197,37 +185,33 @@ func ConvertUnit(s string) string {
 		kmh := ms * 3.6
 		mph := ms * 2.2369362921
 		fts := ms * 3.280839895
-		out = append(out, f2(ms)+" m/s")
-		out = append(out, f2(kmh)+" km/h")
+		out = append(out, f2(kmh)+" kmh")
 		out = append(out, f2(mph)+" mph")
-		out = append(out, f2(fts)+" ft/s")
+		out = append(out, f2(fts)+" fps")
 	case "km/h":
 		kmh := val
 		ms := kmh / 3.6
 		mph := kmh * 0.6213711922
 		fts := ms * 3.280839895
 		out = append(out, f2(ms)+" m/s")
-		out = append(out, f2(kmh)+" km/h")
 		out = append(out, f2(mph)+" mph")
-		out = append(out, f2(fts)+" ft/s")
+		out = append(out, f2(fts)+" fps")
 	case "mph":
 		mph := val
 		kmh := mph * 1.609344
 		ms := kmh / 3.6
 		fts := ms * 3.280839895
 		out = append(out, f2(ms)+" m/s")
-		out = append(out, f2(kmh)+" km/h")
-		out = append(out, f2(mph)+" mph")
-		out = append(out, f2(fts)+" ft/s")
+		out = append(out, f2(kmh)+" kmh")
+		out = append(out, f2(fts)+" fps")
 	case "ft/s":
 		fts := val
 		ms := fts / 3.280839895
 		kmh := ms * 3.6
 		mph := ms * 2.2369362921
 		out = append(out, f2(ms)+" m/s")
-		out = append(out, f2(kmh)+" km/h")
+		out = append(out, f2(kmh)+" kmh")
 		out = append(out, f2(mph)+" mph")
-		out = append(out, f2(fts)+" ft/s")
 
 	default:
 		return ""

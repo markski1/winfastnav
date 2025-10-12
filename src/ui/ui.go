@@ -264,9 +264,8 @@ func ShowHelp() {
 			},
 		),
 		widget.NewLabel(
-			"Math:\n"+
-				"Supported: + - * /\n"+
-				"Just write an operation and see the result.",
+			"Math and Conversions\n"+
+				"Write = for math and unit conversions.",
 		),
 	)
 
