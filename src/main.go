@@ -8,16 +8,12 @@ import (
 	"runtime/debug"
 	"winfastnav/internal/apps"
 	"winfastnav/internal/documents"
-	g "winfastnav/internal/globals"
+	"winfastnav/internal/hotkey"
 	"winfastnav/internal/settings"
 	"winfastnav/ui"
-
-	"github.com/robotn/gohook"
 )
 
-var (
-	keyboardHook chan hook.Event
-)
+var keyboardHotkey *hotkey.Listener
 
 func main() {
 	// Setup file log for panics to try and hunt down a crash when resuming from sleep.
@@ -41,35 +37,26 @@ func main() {
 
 	settings.SetupSettings()
 	ui.SetupUI()
-	setupTray()
 	go documents.SetupDocs()
 	go apps.SetupApps()
 	go listenHotkeys()
-	g.NavApp.Run()
+	ui.Run()
+	setupTray()
 }
 
 func listenHotkeys() {
-	hook.Register(hook.KeyDown, []string{"alt", "o"}, func(e hook.Event) {
-		if !g.Shown {
-			ui.ShowWindow()
-		}
+	listener, err := hotkey.Start(func() {
+		ui.ShowWindow()
 	})
-
-	// Register escape key to hide window when it's focused
-	hook.Register(hook.KeyDown, []string{"esc"}, func(e hook.Event) {
-		if g.Shown {
-			if !g.ShowingMain {
-				ui.ShowWindow()
-			} else {
-				ui.HideWindow()
-			}
-		}
-	})
-
-	keyboardHook = hook.Start(75)
-	<-hook.Process(keyboardHook)
+	if err != nil {
+		log.Printf("failed to register Alt+O hotkey: %v", err)
+		return
+	}
+	keyboardHotkey = listener
 }
 
 func onExit() {
-	hook.End()
+	if keyboardHotkey != nil {
+		keyboardHotkey.Stop()
+	}
 }

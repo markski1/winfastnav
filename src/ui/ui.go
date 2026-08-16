@@ -1,469 +1,502 @@
 package ui
 
-/*
-	While not a major issue, there IS a lot of business code in here.
-	Eventually this should be moved to `core` and elsewhere.
-*/
-
 import (
-	_ "embed"
 	"fmt"
+	"image/color"
 	"log"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+
+	"gioui.org/app"
+	"gioui.org/io/key"
+	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
+	"gioui.org/unit"
+	"gioui.org/widget"
+	"gioui.org/widget/material"
+	"github.com/getlantern/systray"
 	"winfastnav/internal/apps"
 	"winfastnav/internal/core"
 	"winfastnav/internal/documents"
 	g "winfastnav/internal/globals"
+	"winfastnav/internal/presentation"
 	"winfastnav/internal/utils"
-	w "winfastnav/ui/widgets"
-
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/widget"
-	"github.com/getlantern/systray"
+	"winfastnav/internal/windowcontrol"
 )
 
-var (
-	InputEntry         *w.CustomEntry
-	ProgramResultList  *w.CustomList[g.Resource]
-	DocumentResultList *w.CustomList[g.Resource]
-	openProgramList    *w.CustomList[string]
-	inputContainer     *fyne.Container
+const maxResults = 30
 
-	okButton = widget.NewButton("OK", func() {
-		updateContent(nil)
-	})
-)
+type launcher struct {
+	controller                                    *presentation.Controller
+	windowControl                                 *windowcontrol.Controller
+	window                                        app.Window
+	ops                                           op.Ops
+	theme                                         *material.Theme
+	editor, settings                              widget.Editor
+	list                                          widget.List
+	results                                       [maxResults]widget.Clickable
+	menu, back, help, settingsButton, about, quit widget.Clickable
+	startup, clear, confirm, cancel               widget.Clickable
+	mu                                            sync.RWMutex
+	items                                         []g.Resource
+	windows                                       []string
+	confirmClear                                  bool
+}
+
+var active *launcher
 
 func SetupUI() {
-	g.NavApp.Settings().SetTheme(&wfnTheme{})
-
-	// Attempt to create a borderless window as a 'splash'.
-	if drv, ok := fyne.CurrentApp().Driver().(desktop.Driver); ok {
-		g.NavWindow = drv.CreateSplashWindow()
-		g.NavWindow.SetTitle(g.AppName)
-	} else {
-		g.NavWindow = g.NavApp.NewWindow(g.AppName)
-	}
-
-	g.NavWindow.Resize(fyne.NewSize(425, 300))
-	g.NavWindow.SetFixedSize(true)
-	g.NavWindow.CenterOnScreen()
-	resourceIcon := fyne.NewStaticResource("icon.ico", g.IconBytes)
-	g.NavWindow.SetIcon(resourceIcon)
-
-	g.NavWindow.Canvas().SetOnTypedKey(func(key *fyne.KeyEvent) {
-		if key.Name == fyne.KeyReturn || key.Name == fyne.KeyEnter {
-			if !g.ShowingMain {
-				okButton.OnTapped()
-			}
-		}
-	})
-
-	InputEntry = w.NewCustomEntry(func() {
-		fyne.Do(func() {
-			if len(InputEntry.Text) > 0 {
-				if g.CurrentMode == g.ModeSearchProgram {
-					g.NavWindow.Canvas().Focus(ProgramResultList)
-				}
-				if g.CurrentMode == g.ModeSearchDocument {
-					g.NavWindow.Canvas().Focus(DocumentResultList)
-				}
-			}
-			if g.CurrentMode == g.ModeChooseProgram {
-				g.NavWindow.Canvas().Focus(openProgramList)
-			}
-		})
-	})
-	InputEntry.OnSubmitted = func(s string) {
-		updateSubmitContent(s)
-	}
-
-	InputEntry.OnChanged = func(s string) {
-		updateResultList(s)
-	}
-
-	inputContainer = container.NewBorder(
-		nil, nil, nil,
-		widget.NewButton("Menu", func() {
-			showMenu()
-		}),
-		InputEntry,
-	)
-
-	ProgramResultList = w.NewCustomList([]g.Resource{}, InputEntry, func(app g.Resource) string { return app.Name }, func(idx int, app g.Resource) {
-		err := apps.OpenProgram(app.Filepath)
-		if err != nil {
-			log.Printf("Error opening program: %v", err)
-			MainShowText("Sorry, there was an error opening the program.")
-			return
-		}
-		HideWindow()
-	})
-
-	DocumentResultList = w.NewCustomList([]g.Resource{}, InputEntry, func(doc g.Resource) string { return doc.Name }, func(idx int, doc g.Resource) {
-		err := documents.OpenFile(doc.Filepath)
-		if err != nil {
-			log.Printf("Error opening file: %v", err)
-			MainShowText("Sorry, there was an error opening the file.")
-			return
-		}
-		HideWindow()
-	})
-
-	openProgramList = w.NewCustomList([]string{}, InputEntry, func(s string) string { return s }, func(idx int, s string) {
-		apps.FocusWindow(idx + 1)
-		HideWindow()
-	})
-
-	updateContent(nil)
-	ShowWindow()
-
-	// Don't close on X, hide instead.
-	g.NavWindow.SetCloseIntercept(func() {
-		HideWindow()
-	})
+	active = &launcher{controller: presentation.NewController(g.ModeSearchProgram), theme: material.NewTheme(), list: widget.List{List: layout.List{Axis: layout.Vertical}}}
+	active.editor.SingleLine, active.editor.Submit = true, true
+	active.window.Option(app.Title(g.AppName), app.Size(unit.Dp(425), unit.Dp(300)), app.MinSize(unit.Dp(425), unit.Dp(300)), app.MaxSize(unit.Dp(425), unit.Dp(300)), app.Decorated(false), app.TopMost(true))
+	active.windowControl = windowcontrol.New(g.AppName)
+	active.controller.Post(presentation.Command{Kind: presentation.CommandShow})
+	active.message(g.AppName + "\nMenu -> Help")
 }
 
-func updateContent(aContent fyne.CanvasObject) {
-	g.ShowingMain = true
-	fyne.Do(func() {
-		g.NavWindow.SetContent(container.NewPadded(
-			container.NewBorder(
-				inputContainer,
-				nil, nil, nil,
-				aContent,
-			),
-		))
-		g.NavWindow.RequestFocus()
-		g.NavWindow.Canvas().Focus(InputEntry)
-	})
-}
-
-func showContent(aContent fyne.CanvasObject) {
-	g.ShowingMain = false
-
-	bottomVBox := container.NewVBox(
-		okButton,
-	)
-
-	content := container.NewPadded(
-		container.NewBorder(
-			aContent,
-			bottomVBox,
-			nil,
-			nil,
-		),
-	)
-
-	g.NavWindow.SetContent(content)
-}
-
-func showMenu() {
-	content := container.NewVBox(
-		widget.NewButton("Help", func() {
-			ShowHelp()
-		}),
-		widget.NewButton("Settings", func() {
-			showSettings()
-		}),
-		widget.NewButton("About", func() {
-			ShowAbout()
-		}),
-		widget.NewButton("Quit", func() {
-			fyne.Do(func() {
-				g.NavApp.Quit()
-			})
-			systray.Quit()
-			os.Exit(0)
-		}),
-	)
-	showContent(content)
-}
-
-func showSettings() {
-	searchStringEntry := widget.NewEntry()
-	searchStringEntry.SetText(g.SearchString)
-	searchStringEntry.OnChanged = func(s string) {
-		core.UpdateSearchSetting(s)
-	}
-
-	searchStringBox := container.NewVBox(
-		widget.NewLabel("Search string"),
-		searchStringEntry,
-	)
-
-	blocklistBox := container.NewHBox(
-		widget.NewLabel(fmt.Sprintf("Blocklist (%d)", len(g.ExecBlocklist))),
-		widget.NewButton("Clear Blocklist", func() {
-			dlg := dialog.NewConfirm("Clear Blocklist",
-				"Are you sure you want to unblock all blocked apps?",
-				func(confirmed bool) {
-					if confirmed {
-						apps.UnblockAllApplications()
-						dialog.NewInformation("Blocklist cleared", "All apps have been unblocked", g.NavWindow).Show()
-					}
-				}, g.NavWindow)
-			dlg.Show()
-		}),
-	)
-
-	startupBox := container.NewVBox(
-		widget.NewLabel("Start with Windows"),
-		widget.NewLabel("Note: Put the .exe file in it's desired location."),
-		widget.NewButton("Add to Startup", func() {
-			err := utils.AddToStartup()
-			if err != nil {
-				MainShowText("Error adding to startup: " + err.Error())
-				return
-			}
-			MainShowText("winfastnav added to startup!")
-		}),
-	)
-
-	content := container.NewVBox(
-		searchStringBox,
-		widget.NewSeparator(),
-		blocklistBox,
-		widget.NewSeparator(),
-		startupBox,
-	)
-
-	showContent(content)
-}
-
-func ShowHelp() {
-	first := container.NewVBox(
-		widget.NewLabel(
-			"Keys:\n" +
-				"ALT + O: Summon\n" +
-				"ESC: Hide\n" +
-				"Delete: Hide app",
-		),
-	)
-
-	second := container.NewVBox(
-		widget.NewRichText(
-			&widget.TextSegment{
-				Text: "Command modes:\n" +
-					":p | Program search (default)\n" +
-					":d | Document search\n" +
-					":w | Internet search\n" +
-					":s | Switch to Window\n" +
-					":g | Quick GPT\n" +
-					":r | Re-index all resources\n" +
-					":x | Quit",
-				Style: widget.RichTextStyle{
-					TextStyle: fyne.TextStyle{Monospace: true},
-				},
-			},
-		),
-		widget.NewLabel(
-			"Math and Conversions\n"+
-				"Write = for math and unit conversions.",
-		),
-	)
-
-	content := container.NewVBox(first, second)
-
-	showContent(content)
-}
-
-func ShowAbout() {
-	topVBox := container.NewVBox(
-		widget.NewLabel("winfastnav: fast windows navigation"),
-	)
-
-	bottomVBox := container.NewVBox(
-		widget.NewLabel("markski.ar\ngithub.com/markski1"),
-		widget.NewButton("OK", func() {
-			updateContent(nil)
-		}),
-	)
-
-	content := container.NewPadded(
-		container.NewBorder(
-			topVBox,
-			bottomVBox,
-			nil,
-			nil,
-		),
-	)
-
-	g.NavWindow.SetContent(content)
-}
-
-func MainShowText(text string) {
-	formattedText := utils.WrapTextByWords(text, 64)
-	updateContent(widget.NewLabel(formattedText))
-}
-
-func updateResultList(input string) {
-	if g.CurrentMode == g.ModeChooseProgram {
+func Run() {
+	if active == nil {
 		return
 	}
-
-	listGet, mathResult := core.HandleTextInput(input)
-	if mathResult != nil {
-		MainShowText(*mathResult)
-		return
-	}
-	if g.CurrentMode == g.ModeSearchProgram {
-		ProgramResultList.UpdateItems(listGet)
-		updateContent(ProgramResultList)
-		return
-	} else if g.CurrentMode == g.ModeSearchDocument {
-		DocumentResultList.UpdateItems(listGet)
-		updateContent(DocumentResultList)
-		return
-	}
-	updateContent(nil)
-}
-
-func updateSubmitContent(inputText string) {
-	if len(inputText) > 0 {
-		if inputText[0] == ':' {
-			InputEntry.SetText("")
-			if len(inputText) == 1 {
-				MainShowText("Enter a command. Menu -> Help lists the available commands.")
-				return
-			}
-
-			switch inputText[1] {
-			case 'w':
-				SetMode(g.ModeSearchInternet)
-			case 'g':
-				SetMode(g.ModeAskGPT)
-			case 'd':
-				SetMode(g.ModeSearchDocument)
-			case 'p':
-				SetMode(g.ModeSearchProgram)
-			case 's':
-				SetMode(g.ModeChooseProgram)
-			case 'x':
-				g.NavApp.Quit()
-			case 'r':
-				MainShowText("Re-indexing programs and documents.")
-				go documents.SetupDocs()
-				go apps.SetupApps()
-			case 'q':
-				HideWindow()
-			}
-			return
+	go func() {
+		if err := active.run(); err != nil {
+			log.Printf("Gio window closed: %v", err)
 		}
-
-		// If it's a math op, set the result as the new input text
-		if inputText[0] == '=' {
-			expr := strings.ReplaceAll(inputText, "=", "")
-			if utils.IsMath(expr) {
-				expr := strings.ReplaceAll(expr, " ", "")
-				result, err := utils.EvalMath(expr)
-				if err == nil {
-					InputEntry.SetText(result)
-					return
-				}
-			}
-		}
-
-		if g.CurrentMode == g.ModeAskGPT {
-			MainShowText("Please wait...")
-			go func(p string) {
-				result := utils.MakeGPTReq(p)
-				fyne.Do(func() {
-					MainShowText(result)
-				})
-			}(inputText)
-			return
-		}
-		if g.CurrentMode == g.ModeChooseProgram {
-			num, err := strconv.Atoi(inputText)
-			if err == nil {
-				HideWindow()
-				apps.FocusWindow(num)
-				return
-			}
-		}
-		if g.CurrentMode == g.ModeSearchInternet {
-			err := utils.OpenURI(strings.ReplaceAll(g.SearchString, "%s", url.QueryEscape(InputEntry.Text)))
-			if err == nil {
-				HideWindow()
-			} else {
-				MainShowText("Sorry, there was an error opening your web browser.")
-			}
-			return
-		}
-		g.NavWindow.Canvas().Focus(ProgramResultList)
-	}
-	// Otherwise attempt to focus the list.
-	if g.CurrentMode == g.ModeChooseProgram {
-		g.NavWindow.Canvas().Focus(openProgramList)
-		return
-	}
-}
-
-func SetMode(newMode int) {
-	g.CurrentMode = newMode
-
-	switch newMode {
-	case g.ModeChooseProgram:
-		fyne.Do(func() {
-			InputEntry.SetPlaceHolder("Choose window...")
-		})
-		openProgramList.UpdateItems(apps.GetOpenWindows())
-		updateContent(openProgramList)
-
-	case g.ModeSearchProgram:
-		fyne.Do(func() {
-			InputEntry.SetPlaceHolder("Program search...")
-		})
-		updateContent(nil)
-
-	case g.ModeSearchDocument:
-		placeholder := "Document search..."
-		if !g.FinishedCachingDocs {
-			placeholder = "Document search [still caching]..."
-		}
-		fyne.Do(func() {
-			InputEntry.SetPlaceHolder(placeholder)
-		})
-		updateContent(nil)
-
-	case g.ModeSearchInternet:
-		fyne.Do(func() {
-			InputEntry.SetPlaceHolder("Internet search...")
-		})
-		updateContent(nil)
-
-	case g.ModeAskGPT:
-		fyne.Do(func() {
-			InputEntry.SetPlaceHolder("Quick GPT...")
-		})
-		updateContent(nil)
-	}
+	}()
 }
 
 func ShowWindow() {
-	g.Shown = true
+	if active == nil {
+		return
+	}
 	g.CurrentMode = g.ModeSearchProgram
-	fyne.Do(func() {
-		g.NavWindow.Show()
-		InputEntry.SetPlaceHolder("Program search...")
-		MainShowText(g.AppName + "\nMenu -> Help")
-		g.NavWindow.RequestFocus()
-		g.NavWindow.Canvas().Focus(InputEntry)
-	})
+	active.editor.SetText("")
+	active.clearItems()
+	active.controller.Post(presentation.Command{Kind: presentation.CommandShow})
+	active.controller.Post(presentation.Command{Kind: presentation.CommandSetMode, Mode: g.ModeSearchProgram})
+	active.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageLauncher})
+	active.controller.Post(presentation.Command{Kind: presentation.CommandSetResults})
+	active.message(g.AppName + "\nMenu -> Help")
+	_ = active.windowControl.ShowAndFocus()
+	active.window.Invalidate()
 }
 
 func HideWindow() {
-	g.Shown = false
-	fyne.Do(func() {
-		g.NavWindow.Hide()
-		InputEntry.SetText("")
-		updateContent(nil)
+	if active == nil {
+		return
+	}
+	active.editor.SetText("")
+	active.clearItems()
+	active.controller.Post(presentation.Command{Kind: presentation.CommandSetQuery})
+	active.controller.Post(presentation.Command{Kind: presentation.CommandSetResults})
+	active.controller.Post(presentation.Command{Kind: presentation.CommandHide})
+	_ = active.windowControl.Hide()
+}
+
+func ShowAbout() {
+	if active != nil {
+		active.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageAbout})
+	}
+}
+func Quit() {
+	if active != nil {
+		active.controller.Close()
+	}
+	systray.Quit()
+	os.Exit(0)
+}
+
+func (l *launcher) run() error {
+	for {
+		switch e := l.window.Event().(type) {
+		case app.DestroyEvent:
+			return e.Err
+		case app.ViewEvent:
+			l.windowControl.BindView(e)
+		case app.FrameEvent:
+			gtx := app.NewContext(&l.ops, e)
+			l.controller.SetInvalidator(l.window.Invalidate)
+			l.update(gtx)
+			l.layout(gtx)
+			e.Frame(&l.ops)
+		}
+	}
+}
+
+func (l *launcher) update(gtx layout.Context) {
+	for {
+		e, ok := gtx.Source.Event(key.Filter{Name: key.NameUpArrow}, key.Filter{Name: key.NameDownArrow}, key.Filter{Name: key.NameReturn}, key.Filter{Name: key.NameEnter}, key.Filter{Name: key.NameEscape}, key.Filter{Name: key.NameDeleteForward})
+		if !ok {
+			break
+		}
+		if k, ok := e.(key.Event); ok && k.State == key.Press {
+			l.key(k.Name)
+		}
+	}
+	for {
+		e, ok := l.editor.Update(gtx)
+		if !ok {
+			break
+		}
+		switch e.(type) {
+		case widget.ChangeEvent:
+			l.query(l.editor.Text())
+		case widget.SubmitEvent:
+			l.submit(l.editor.Text())
+		}
+	}
+}
+
+func (l *launcher) key(name key.Name) {
+	s := l.controller.Snapshot()
+	switch name {
+	case key.NameEscape:
+		if s.Page == presentation.PageLauncher {
+			HideWindow()
+		} else {
+			l.launcher()
+		}
+	case key.NameUpArrow:
+		l.selectResult(s.Selected - 1)
+	case key.NameDownArrow:
+		l.selectResult(s.Selected + 1)
+	case key.NameReturn, key.NameEnter:
+		if s.Selected >= 0 {
+			l.open(s.Selected)
+		}
+	case key.NameDeleteForward:
+		if g.CurrentMode == g.ModeSearchProgram && s.Selected >= 0 {
+			l.block(s.Selected)
+		}
+	}
+}
+
+func (l *launcher) query(query string) {
+	l.controller.Post(presentation.Command{Kind: presentation.CommandSetQuery, Query: query})
+	if g.CurrentMode == g.ModeChooseProgram {
+		return
+	}
+	items, message := core.HandleTextInput(query)
+	if message != nil {
+		l.clearItems()
+		l.controller.Post(presentation.Command{Kind: presentation.CommandSetResults})
+		l.message(*message)
+		return
+	}
+	if g.CurrentMode == g.ModeSearchProgram || g.CurrentMode == g.ModeSearchDocument {
+		l.mu.Lock()
+		l.items, l.windows = items, nil
+		l.mu.Unlock()
+		l.controller.Post(presentation.Command{Kind: presentation.CommandSetResults, ResultCount: len(items)})
+		l.message("")
+	}
+}
+
+func (l *launcher) submit(input string) {
+	if input == "" {
+		return
+	}
+	if strings.HasPrefix(input, ":") {
+		l.editor.SetText("")
+		if len(input) == 1 {
+			l.message("Enter a command. Menu -> Help lists the available commands.")
+			return
+		}
+		switch input[1] {
+		case 'p':
+			l.mode(g.ModeSearchProgram)
+		case 'd':
+			l.mode(g.ModeSearchDocument)
+		case 'w':
+			l.mode(g.ModeSearchInternet)
+		case 's':
+			l.mode(g.ModeChooseProgram)
+		case 'g':
+			l.mode(g.ModeAskGPT)
+		case 'r':
+			l.message("Re-indexing programs and documents.")
+			go documents.SetupDocs()
+			go apps.SetupApps()
+		case 'q':
+			HideWindow()
+		case 'x':
+			Quit()
+		}
+		return
+	}
+	if strings.HasPrefix(input, "=") {
+		expr := strings.ReplaceAll(strings.TrimPrefix(input, "="), " ", "")
+		if utils.IsMath(expr) {
+			if result, err := utils.EvalMath(expr); err == nil {
+				l.editor.SetText(result)
+				l.query(result)
+				return
+			}
+		}
+	}
+	switch g.CurrentMode {
+	case g.ModeAskGPT:
+		l.controller.Post(presentation.Command{Kind: presentation.CommandSetLoading, Loading: true})
+		l.message("Please wait...")
+		go func(p string) {
+			result := utils.MakeGPTReq(p)
+			l.controller.Post(presentation.Command{Kind: presentation.CommandSetLoading, Loading: false})
+			l.message(result)
+		}(input)
+	case g.ModeChooseProgram:
+		if n, err := strconv.Atoi(input); err == nil {
+			apps.FocusWindow(n)
+			HideWindow()
+		}
+	case g.ModeSearchInternet:
+		if err := utils.OpenURI(strings.ReplaceAll(g.SearchString, "%s", url.QueryEscape(input))); err != nil {
+			l.message("Sorry, there was an error opening your web browser.")
+		} else {
+			HideWindow()
+		}
+	default:
+		if s := l.controller.Snapshot(); s.Selected >= 0 {
+			l.open(s.Selected)
+		}
+	}
+}
+
+func (l *launcher) mode(mode int) {
+	g.CurrentMode = mode
+	l.clearItems()
+	l.controller.Post(presentation.Command{Kind: presentation.CommandSetMode, Mode: mode})
+	l.controller.Post(presentation.Command{Kind: presentation.CommandSetResults})
+	l.message("")
+	if mode == g.ModeChooseProgram {
+		windows := apps.GetOpenWindows()
+		l.mu.Lock()
+		l.windows = windows
+		l.mu.Unlock()
+		l.controller.Post(presentation.Command{Kind: presentation.CommandSetResults, ResultCount: len(windows)})
+	}
+}
+func (l *launcher) selectResult(index int) {
+	s := l.controller.Snapshot()
+	if s.ResultCount == 0 {
+		return
+	}
+	if index < 0 {
+		index = 0
+	}
+	if index >= s.ResultCount {
+		index = s.ResultCount - 1
+	}
+	l.controller.Post(presentation.Command{Kind: presentation.CommandSelectResult, Selected: index})
+}
+func (l *launcher) open(index int) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if g.CurrentMode == g.ModeChooseProgram && index < len(l.windows) {
+		apps.FocusWindow(index + 1)
+		HideWindow()
+		return
+	}
+	if index >= len(l.items) {
+		return
+	}
+	item := l.items[index]
+	var err error
+	if g.CurrentMode == g.ModeSearchProgram {
+		err = apps.OpenProgram(item.Filepath)
+	} else if g.CurrentMode == g.ModeSearchDocument {
+		err = documents.OpenFile(item.Filepath)
+	}
+	if err != nil {
+		l.message("Sorry, there was an error opening the selected item.")
+		return
+	}
+	HideWindow()
+}
+func (l *launcher) block(index int) {
+	l.mu.RLock()
+	if index >= len(l.items) {
+		l.mu.RUnlock()
+		return
+	}
+	item := l.items[index]
+	l.mu.RUnlock()
+	apps.BlockApplication(item)
+	l.query(l.editor.Text())
+}
+func (l *launcher) clearItems() { l.mu.Lock(); l.items, l.windows = nil, nil; l.mu.Unlock() }
+func (l *launcher) message(text string) {
+	l.controller.Post(presentation.Command{Kind: presentation.CommandSetMessage, Message: utils.WrapTextByWords(text, 64)})
+}
+func (l *launcher) launcher() {
+	l.confirmClear = false
+	l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageLauncher})
+}
+
+func (l *launcher) layout(gtx layout.Context) layout.Dimensions {
+	paint.FillShape(gtx.Ops, color.NRGBA{R: 0x1a, G: 0x18, B: 0x18, A: 0xff}, clip.Rect{Max: gtx.Constraints.Max}.Op())
+	s := l.controller.Snapshot()
+	return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		switch s.Page {
+		case presentation.PageMenu:
+			return l.menuPage(gtx)
+		case presentation.PageHelp:
+			return l.textPage(gtx, "Help", "ALT + O: Summon\nESC: Hide\nDelete: Hide app\n\n:p Program search\n:d Document search\n:w Internet search\n:s Switch window\n:g Quick GPT\n:r Re-index\n:x Quit\n\nUse = for calculations and conversions.")
+		case presentation.PageSettings:
+			return l.settingsPage(gtx)
+		case presentation.PageAbout:
+			return l.textPage(gtx, "winfastnav", "Fast Windows navigation\n\nmarkski.ar\ngithub.com/markski1")
+		default:
+			return l.launcherPage(gtx, s)
+		}
 	})
+}
+
+func (l *launcher) launcherPage(gtx layout.Context, s presentation.State) layout.Dimensions {
+	for l.menu.Clicked(gtx) {
+		l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageMenu})
+	}
+	hint := placeholder(s.Mode)
+	if s.Mode == g.ModeSearchDocument && !g.FinishedCachingDocs {
+		hint = "Document search [still caching]..."
+	}
+	editor := material.Editor(l.theme, &l.editor, hint)
+	editor.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	editor.HintColor = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx, layout.Flexed(1, editor.Layout), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.menu, "Menu") }))
+	}), layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.resultsPage(gtx, s) }))
+}
+
+func (l *launcher) resultsPage(gtx layout.Context, s presentation.State) layout.Dimensions {
+	l.mu.RLock()
+	var labels []string
+	if g.CurrentMode == g.ModeChooseProgram {
+		labels = append(labels, l.windows...)
+	} else {
+		for _, item := range l.items {
+			labels = append(labels, item.Name)
+		}
+	}
+	l.mu.RUnlock()
+	if len(labels) == 0 {
+		if s.Message == "" {
+			return layout.Dimensions{}
+		}
+		return l.label(gtx, s.Message)
+	}
+	return material.List(l.theme, &l.list).Layout(gtx, len(labels), func(gtx layout.Context, index int) layout.Dimensions {
+		for l.results[index].Clicked(gtx) {
+			l.open(index)
+		}
+		text := labels[index]
+		if index == s.Selected {
+			text = "> " + text
+		}
+		return l.button(gtx, &l.results[index], text)
+	})
+}
+
+func (l *launcher) menuPage(gtx layout.Context) layout.Dimensions {
+	for l.help.Clicked(gtx) {
+		l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageHelp})
+	}
+	for l.settingsButton.Clicked(gtx) {
+		l.settings.SetText(g.SearchString)
+		l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageSettings})
+	}
+	for l.about.Clicked(gtx) {
+		l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageAbout})
+	}
+	for l.quit.Clicked(gtx) {
+		Quit()
+	}
+	for l.back.Clicked(gtx) {
+		l.launcher()
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.help, "Help") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.settingsButton, "Settings") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.about, "About") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.quit, "Quit") }), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }))
+}
+
+func (l *launcher) textPage(gtx layout.Context, title, text string) layout.Dimensions {
+	for l.back.Clicked(gtx) {
+		l.launcher()
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.heading(gtx, title) }), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.label(gtx, text) }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }))
+}
+func (l *launcher) settingsPage(gtx layout.Context) layout.Dimensions {
+	for {
+		e, ok := l.settings.Update(gtx)
+		if !ok {
+			break
+		}
+		if _, changed := e.(widget.ChangeEvent); changed {
+			core.UpdateSearchSetting(l.settings.Text())
+		}
+	}
+	for l.startup.Clicked(gtx) {
+		if err := utils.AddToStartup(); err != nil {
+			l.message("Error adding to startup: " + err.Error())
+		} else {
+			l.message("winfastnav added to startup!")
+		}
+	}
+	for l.clear.Clicked(gtx) {
+		l.confirmClear = true
+	}
+	for l.confirm.Clicked(gtx) {
+		apps.UnblockAllApplications()
+		l.confirmClear = false
+		l.message("All apps have been unblocked.")
+	}
+	for l.cancel.Clicked(gtx) {
+		l.confirmClear = false
+	}
+	for l.back.Clicked(gtx) {
+		l.launcher()
+	}
+	editor := material.Editor(l.theme, &l.settings, "https://duckduckgo.com/?q=%s")
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.heading(gtx, "Settings") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		return l.label(gtx, "Search URL (%s is replaced with the query)")
+	}), layout.Rigid(editor.Layout), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.startup, "Add to Startup") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		return l.button(gtx, &l.clear, fmt.Sprintf("Clear Blocklist (%d)", len(g.ExecBlocklist)))
+	}), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		if !l.confirmClear {
+			return layout.Dimensions{}
+		}
+		return layout.Flex{}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.confirm, "Confirm clear") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.cancel, "Cancel") }))
+	}), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }))
+}
+func (l *launcher) button(gtx layout.Context, c *widget.Clickable, text string) layout.Dimensions {
+	b := material.Button(l.theme, c, text)
+	b.Background = color.NRGBA{R: 0x46, G: 0x38, B: 0x38, A: 255}
+	b.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	return b.Layout(gtx)
+}
+func (l *launcher) label(gtx layout.Context, text string) layout.Dimensions {
+	s := material.Body1(l.theme, text)
+	s.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	return s.Layout(gtx)
+}
+func (l *launcher) heading(gtx layout.Context, text string) layout.Dimensions {
+	s := material.H6(l.theme, text)
+	s.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	return s.Layout(gtx)
+}
+func placeholder(mode int) string {
+	switch mode {
+	case g.ModeSearchDocument:
+		return "Document search..."
+	case g.ModeSearchInternet:
+		return "Internet search..."
+	case g.ModeChooseProgram:
+		return "Choose window..."
+	case g.ModeAskGPT:
+		return "Quick GPT..."
+	default:
+		return "Program search..."
+	}
 }

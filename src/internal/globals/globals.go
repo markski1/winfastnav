@@ -2,9 +2,6 @@ package globals
 
 import (
 	_ "embed"
-
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
 )
 
 type Resource struct {
@@ -30,12 +27,7 @@ var (
 
 	FinishedCachingDocs = false
 
-	ShowingMain = true
-
-	NavApp      = app.New()
-	NavWindow   fyne.Window
-	Shown       bool = false
-	CurrentMode int  = ModeSearchProgram
+	CurrentMode int = ModeSearchProgram
 
 	//go:embed assets/icon.ico
 	IconBytes []byte

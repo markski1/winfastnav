@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fyne.io/fyne/v2"
 	"github.com/getlantern/systray"
 	"os"
 	g "winfastnav/internal/globals"
@@ -9,7 +8,7 @@ import (
 )
 
 func setupTray() {
-	go systray.Run(onReady, onExit)
+	systray.Run(onReady, onExit)
 }
 
 func onReady() {
@@ -26,14 +25,14 @@ func onReady() {
 		for {
 			select {
 			case <-mToggle.ClickedCh:
-				ui.ShowWindow()
+				go ui.ShowWindow()
 			case <-mAbout.ClickedCh:
-				ui.ShowWindow()
-				ui.ShowAbout()
+				go func() {
+					ui.ShowWindow()
+					ui.ShowAbout()
+				}()
 			case <-mQuit.ClickedCh:
-				fyne.Do(func() {
-					g.NavApp.Quit()
-				})
+				ui.Quit()
 				systray.Quit()
 				os.Exit(0)
 			}
