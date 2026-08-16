@@ -24,6 +24,8 @@ const (
 	CommandSetPage
 	CommandSetResults
 	CommandSelectResult
+	CommandFocusSearch
+	CommandFocusHandled
 )
 
 type Command struct {
@@ -46,6 +48,7 @@ type State struct {
 	Page        Page
 	ResultCount int
 	Selected    int
+	FocusSearch bool
 }
 
 type queuedCommand struct {
@@ -157,6 +160,7 @@ func (c *Controller) apply(command Command) (State, func()) {
 		c.state.Loading = command.Loading
 	case CommandSetPage:
 		c.state.Page = command.Page
+		c.state.FocusSearch = command.Page == PageLauncher
 	case CommandSetResults:
 		c.state.ResultCount = max(command.ResultCount, 0)
 		c.state.Selected = -1
@@ -166,6 +170,10 @@ func (c *Controller) apply(command Command) (State, func()) {
 		} else {
 			c.state.Selected = -1
 		}
+	case CommandFocusSearch:
+		c.state.FocusSearch = true
+	case CommandFocusHandled:
+		c.state.FocusSearch = false
 	}
 	state := c.state
 	invalidate := c.invalidate

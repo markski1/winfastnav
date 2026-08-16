@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"log"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/io/key"
+	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -46,12 +48,15 @@ type launcher struct {
 	items                                         []g.Resource
 	windows                                       []string
 	confirmClear                                  bool
+	centered                                      bool
 }
 
 var active *launcher
 
 func SetupUI() {
-	active = &launcher{controller: presentation.NewController(g.ModeSearchProgram), theme: material.NewTheme(), list: widget.List{List: layout.List{Axis: layout.Vertical}}}
+	theme := material.NewTheme()
+	theme.TextSize = unit.Sp(12.35)
+	active = &launcher{controller: presentation.NewController(g.ModeSearchProgram), theme: theme, list: widget.List{List: layout.List{Axis: layout.Vertical}}}
 	active.editor.SingleLine, active.editor.Submit = true, true
 	active.window.Option(app.Title(g.AppName), app.Size(unit.Dp(425), unit.Dp(300)), app.MinSize(unit.Dp(425), unit.Dp(300)), app.MaxSize(unit.Dp(425), unit.Dp(300)), app.Decorated(false), app.TopMost(true))
 	active.windowControl = windowcontrol.New(g.AppName)
@@ -75,11 +80,11 @@ func ShowWindow() {
 		return
 	}
 	g.CurrentMode = g.ModeSearchProgram
-	active.editor.SetText("")
 	active.clearItems()
 	active.controller.Post(presentation.Command{Kind: presentation.CommandShow})
 	active.controller.Post(presentation.Command{Kind: presentation.CommandSetMode, Mode: g.ModeSearchProgram})
 	active.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageLauncher})
+	active.controller.Post(presentation.Command{Kind: presentation.CommandSetQuery})
 	active.controller.Post(presentation.Command{Kind: presentation.CommandSetResults})
 	active.message(g.AppName + "\nMenu -> Help")
 	_ = active.windowControl.ShowAndFocus()
@@ -90,12 +95,13 @@ func HideWindow() {
 	if active == nil {
 		return
 	}
-	active.editor.SetText("")
 	active.clearItems()
 	active.controller.Post(presentation.Command{Kind: presentation.CommandSetQuery})
 	active.controller.Post(presentation.Command{Kind: presentation.CommandSetResults})
 	active.controller.Post(presentation.Command{Kind: presentation.CommandHide})
-	_ = active.windowControl.Hide()
+	go func() {
+		_ = active.windowControl.Hide()
+	}()
 }
 
 func ShowAbout() {
@@ -116,6 +122,11 @@ func (l *launcher) run() error {
 		switch e := l.window.Event().(type) {
 		case app.DestroyEvent:
 			return e.Err
+		case app.ConfigEvent:
+			if !l.centered {
+				l.window.Perform(system.ActionCenter)
+				l.centered = true
+			}
 		case app.ViewEvent:
 			l.windowControl.BindView(e)
 		case app.FrameEvent:
@@ -129,6 +140,10 @@ func (l *launcher) run() error {
 }
 
 func (l *launcher) update(gtx layout.Context) {
+	state := l.controller.Snapshot()
+	if l.editor.Text() != state.Query {
+		l.editor.SetText(state.Query)
+	}
 	for {
 		e, ok := gtx.Source.Event(key.Filter{Name: key.NameUpArrow}, key.Filter{Name: key.NameDownArrow}, key.Filter{Name: key.NameReturn}, key.Filter{Name: key.NameEnter}, key.Filter{Name: key.NameEscape}, key.Filter{Name: key.NameDeleteForward})
 		if !ok {
@@ -365,11 +380,17 @@ func (l *launcher) launcherPage(gtx layout.Context, s presentation.State) layout
 		hint = "Document search [still caching]..."
 	}
 	editor := material.Editor(l.theme, &l.editor, hint)
+	editor.TextSize = unit.Sp(13)
 	editor.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
 	editor.HintColor = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Alignment: layout.Middle}.Layout(gtx, layout.Flexed(1, editor.Layout), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.menu, "Menu") }))
+	dimensions := layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.input(gtx, editor.Layout) }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.menu, "Menu") }))
 	}), layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.resultsPage(gtx, s) }))
+	if s.FocusSearch {
+		gtx.Source.Execute(key.FocusCmd{Tag: &l.editor})
+		l.controller.Post(presentation.Command{Kind: presentation.CommandFocusHandled})
+	}
+	return dimensions
 }
 
 func (l *launcher) resultsPage(gtx layout.Context, s presentation.State) layout.Dimensions {
@@ -418,7 +439,7 @@ func (l *launcher) menuPage(gtx layout.Context) layout.Dimensions {
 	for l.back.Clicked(gtx) {
 		l.launcher()
 	}
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.help, "Help") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.settingsButton, "Settings") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.about, "About") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.quit, "Quit") }), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }))
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.help, "Help") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.settingsButton, "Settings") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.about, "About") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.quit, "Quit") }), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }))
 }
 
 func (l *launcher) textPage(gtx layout.Context, title, text string) layout.Dimensions {
@@ -459,22 +480,70 @@ func (l *launcher) settingsPage(gtx layout.Context) layout.Dimensions {
 		l.launcher()
 	}
 	editor := material.Editor(l.theme, &l.settings, "https://duckduckgo.com/?q=%s")
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.heading(gtx, "Settings") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		return l.label(gtx, "Search URL (%s is replaced with the query)")
-	}), layout.Rigid(editor.Layout), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.startup, "Add to Startup") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		return l.button(gtx, &l.clear, fmt.Sprintf("Clear Blocklist (%d)", len(g.ExecBlocklist)))
-	}), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		if !l.confirmClear {
-			return layout.Dimensions{}
-		}
-		return layout.Flex{}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.confirm, "Confirm clear") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.cancel, "Cancel") }))
-	}), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }))
+	editor.TextSize = unit.Sp(13)
+	editor.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	editor.HintColor = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.heading(gtx, "Settings") }),
+		layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "SEARCH") }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return l.label(gtx, "URL template. %s is replaced with the query.")
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.input(gtx, editor.Layout) }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "STARTUP") }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.startup, "Add to Startup") }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "HIDDEN APPS") }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return l.menuButton(gtx, &l.clear, fmt.Sprintf("Clear Blocklist (%d)", len(g.ExecBlocklist)))
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if !l.confirmClear {
+				return layout.Dimensions{}
+			}
+			return layout.Flex{}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.confirm, "Confirm clear") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.cancel, "Cancel") }))
+		}),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }),
+	)
 }
 func (l *launcher) button(gtx layout.Context, c *widget.Clickable, text string) layout.Dimensions {
 	b := material.Button(l.theme, c, text)
 	b.Background = color.NRGBA{R: 0x46, G: 0x38, B: 0x38, A: 255}
 	b.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	b.CornerRadius = 0
+	b.TextSize = unit.Sp(10.5)
+	b.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(8), Right: unit.Dp(8)}
 	return b.Layout(gtx)
+}
+
+func (l *launcher) menuButton(gtx layout.Context, c *widget.Clickable, text string) layout.Dimensions {
+	return layout.Inset{Bottom: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return l.button(gtx, c, text)
+	})
+}
+
+func (l *launcher) input(gtx layout.Context, content layout.Widget) layout.Dimensions {
+	return layout.Background{}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		paint.FillShape(gtx.Ops, color.NRGBA{R: 0x2b, G: 0x2b, B: 0x2b, A: 0xff}, clip.Rect{Max: gtx.Constraints.Min}.Op())
+		return layout.Dimensions{Size: gtx.Constraints.Min}
+	}, func(gtx layout.Context) layout.Dimensions {
+		return layout.Inset{Top: unit.Dp(5), Bottom: unit.Dp(5), Left: unit.Dp(6), Right: unit.Dp(6)}.Layout(gtx, content)
+	})
+}
+
+func (l *launcher) section(gtx layout.Context, text string) layout.Dimensions {
+	style := material.Body1(l.theme, text)
+	style.Color = color.NRGBA{R: 0xc8, G: 0xc8, B: 0xc8, A: 0xff}
+	return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(3)}.Layout(gtx, style.Layout)
+}
+
+func (l *launcher) separator(gtx layout.Context) layout.Dimensions {
+	size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(1)))
+	paint.FillShape(gtx.Ops, color.NRGBA{R: 0x4a, G: 0x4a, B: 0x4a, A: 0xff}, clip.Rect{Max: size}.Op())
+	return layout.Dimensions{Size: size}
 }
 func (l *launcher) label(gtx layout.Context, text string) layout.Dimensions {
 	s := material.Body1(l.theme, text)
