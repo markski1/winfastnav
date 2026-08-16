@@ -8,6 +8,8 @@ import (
 )
 
 func UnblockAllApplications() {
+	appListMu.Lock()
+	defer appListMu.Unlock()
 	g.ExecBlocklist = []string{}
 
 	jsonData, err := json.Marshal(g.ExecBlocklist)
@@ -25,6 +27,8 @@ func UnblockAllApplications() {
 }
 
 func BlockApplication(application g.Resource) {
+	appListMu.Lock()
+	defer appListMu.Unlock()
 	for i, app := range g.AppList {
 		if app == application {
 			g.AppList = append(g.AppList[:i], g.AppList[i+1:]...)

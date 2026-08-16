@@ -13,7 +13,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 	"winfastnav/internal/apps"
 	"winfastnav/internal/core"
 	"winfastnav/internal/documents"
@@ -221,6 +220,7 @@ func showSettings() {
 			err := utils.AddToStartup()
 			if err != nil {
 				MainShowText("Error adding to startup: " + err.Error())
+				return
 			}
 			MainShowText("winfastnav added to startup!")
 		}),
@@ -329,6 +329,10 @@ func updateSubmitContent(inputText string) {
 	if len(inputText) > 0 {
 		if inputText[0] == ':' {
 			InputEntry.SetText("")
+			if len(inputText) == 1 {
+				MainShowText("Enter a command. Menu -> Help lists the available commands.")
+				return
+			}
 
 			switch inputText[1] {
 			case 'w':
@@ -385,7 +389,7 @@ func updateSubmitContent(inputText string) {
 			}
 		}
 		if g.CurrentMode == g.ModeSearchInternet {
-			err := utils.OpenURI(fmt.Sprintf(g.SearchString, url.QueryEscape(InputEntry.Text)))
+			err := utils.OpenURI(strings.ReplaceAll(g.SearchString, "%s", url.QueryEscape(InputEntry.Text)))
 			if err == nil {
 				HideWindow()
 			} else {
@@ -450,11 +454,8 @@ func ShowWindow() {
 		g.NavWindow.Show()
 		InputEntry.SetPlaceHolder("Program search...")
 		MainShowText(g.AppName + "\nMenu -> Help")
-		for i := 0; i < 3; i++ {
-			time.Sleep(33 * time.Millisecond)
-			g.NavWindow.RequestFocus()
-			g.NavWindow.Canvas().Focus(InputEntry)
-		}
+		g.NavWindow.RequestFocus()
+		g.NavWindow.Canvas().Focus(InputEntry)
 	})
 }
 

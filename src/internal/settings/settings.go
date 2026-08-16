@@ -28,7 +28,10 @@ func SetupSettings() {
 	err = json.Unmarshal([]byte(unparsedList), &blocklist)
 	if err != nil {
 		log.Printf("Error parsing blocklist: %v", err)
-		return
+		blocklist = []string{}
+		if err = SetSetting("blocklist", "[]"); err != nil {
+			log.Printf("Error resetting blocklist: %v", err)
+		}
 	}
 
 	g.ExecBlocklist = blocklist
@@ -53,7 +56,7 @@ func getSettingsFilePath() (string, error) {
 
 	dir := filepath.Join(appData, "winfastnav")
 
-	err := os.MkdirAll(dir, os.ModePerm)
+	err := os.MkdirAll(dir, 0o700)
 	if err != nil {
 		return "", fmt.Errorf("failed to create app directory: %w", err)
 	}
@@ -89,6 +92,9 @@ func readSettings() (Settings, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s == nil {
+		s = Settings{}
+	}
 
 	return s, nil
 }
@@ -104,20 +110,15 @@ func writeSettings(s Settings) error {
 		return err
 	}
 
-	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			log.Printf("Error closing settings file: %v", err)
-		}
-	}(file)
-
 	enc := json.NewEncoder(file)
 	enc.SetIndent("", "  ")
-	err = enc.Encode(s)
-	if err != nil {
+	if err = enc.Encode(s); err != nil {
+		_ = file.Close()
 		return err
 	}
-
+	if err = file.Close(); err != nil {
+		return err
+	}
 	return nil
 }
 

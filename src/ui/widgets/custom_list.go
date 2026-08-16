@@ -132,7 +132,7 @@ func (sl *CustomList[T]) TypedKey(event *fyne.KeyEvent) {
 		sl.activateSelection()
 	case fyne.KeyDelete:
 		// Only for apps!
-		if g.CurrentMode == g.ModeSearchProgram {
+		if g.CurrentMode == g.ModeSearchProgram && sl.selectedIndex >= 0 && sl.selectedIndex < len(sl.Items) {
 			app := any(sl.Items[sl.selectedIndex]).(g.Resource)
 			itemName := app.Name
 			dlg := dialog.NewConfirm("Hide app",
@@ -187,7 +187,14 @@ func (sl *CustomList[T]) moveSelection(delta int) {
 		})
 		return
 	}
-	// wrap around
+	if sl.selectedIndex < 0 {
+		sl.selectedIndex = 0
+		sl.scrollToSelection()
+		sl.Refresh()
+		return
+	}
+
+	// Keep the selection at the final item.
 	sl.selectedIndex = sl.selectedIndex + delta
 	if sl.selectedIndex > n-1 {
 		sl.selectedIndex--

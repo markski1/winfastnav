@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"golang.org/x/sys/windows/registry"
 	"io"
 	"log"
@@ -9,7 +10,12 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"time"
 )
+
+const maxHTTPResponseSize = 1 << 20
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 func StartsWith(s, prefix string) bool {
 	if len(s) < len(prefix) {
@@ -19,7 +25,7 @@ func StartsWith(s, prefix string) bool {
 }
 
 func HttpGet(url string) (string, error) {
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 
 	if err != nil {
 		return "", err
@@ -29,9 +35,16 @@ func HttpGet(url string) (string, error) {
 		_ = Body.Close()
 	}(resp.Body)
 
-	body, err := io.ReadAll(resp.Body)
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("request failed: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxHTTPResponseSize+1))
 	if err != nil {
 		return "", err
+	}
+	if len(body) > maxHTTPResponseSize {
+		return "", fmt.Errorf("response exceeds %d bytes", maxHTTPResponseSize)
 	}
 	return string(body), nil
 }
@@ -102,8 +115,8 @@ func AddToStartup() error {
 }
 
 func OpenURI(uri string) error {
-	log.Printf(uri)
-	cmd := exec.Command("cmd", "/c", "start", uri)
+	log.Printf("Opening URI: %s", uri)
+	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", uri)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow: true,
 	}

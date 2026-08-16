@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -24,12 +25,17 @@ func main() {
 		if r := recover(); r != nil {
 			appData := os.Getenv("APPDATA")
 			dir := filepath.Join(appData, "winfastnav")
-			f, _ := os.Create(filepath.Join(dir, "panic.log"))
-			log.Printf("panic: %v\n%s", r, debug.Stack())
-			if f != nil {
-				_, _ = f.Write(debug.Stack())
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				log.Printf("failed to create panic log directory: %v", err)
+				return
 			}
-			_ = f.Close()
+			f, _ := os.Create(filepath.Join(dir, "panic.log"))
+			if f != nil {
+				_, _ = fmt.Fprintf(f, "panic: %v\n", r)
+				_, _ = f.Write(debug.Stack())
+				_ = f.Close()
+			}
+			log.Printf("panic: %v\n%s", r, debug.Stack())
 		}
 	}()
 
@@ -66,7 +72,4 @@ func listenHotkeys() {
 
 func onExit() {
 	hook.End()
-	if keyboardHook != nil {
-		close(keyboardHook)
-	}
 }

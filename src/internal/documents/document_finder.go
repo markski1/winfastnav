@@ -7,18 +7,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	g "winfastnav/internal/globals"
 	"winfastnav/internal/utils"
 )
 
 var (
-	DocumentCache []g.Resource
+	DocumentCache   []g.Resource
+	documentCacheMu sync.RWMutex
 )
 
 func SetupDocs() {
 	log.Print("Indexing documents")
-	DocumentCache = make([]g.Resource, 0)
+	var documentCache []g.Resource
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -70,7 +72,7 @@ func SetupDocs() {
 			Name:     info.Name(),
 			Filepath: path,
 		}
-		DocumentCache = append(DocumentCache, doc)
+		documentCache = append(documentCache, doc)
 
 		return nil
 	})
@@ -78,6 +80,10 @@ func SetupDocs() {
 	if err != nil {
 		fmt.Printf("Warning: failed to search path %s: %v\n", homeDir, err)
 	}
+
+	documentCacheMu.Lock()
+	DocumentCache = documentCache
+	documentCacheMu.Unlock()
 
 	log.Print("Documents indexed")
 	g.FinishedCachingDocs = true
@@ -99,6 +105,8 @@ func FilterDocumentsByName(namePattern string) []g.Resource {
 	var filtered []g.Resource
 	pattern := strings.ToLower(namePattern)
 
+	documentCacheMu.RLock()
+	defer documentCacheMu.RUnlock()
 	for _, doc := range DocumentCache {
 		if strings.Contains(strings.ToLower(doc.Name), pattern) {
 			filtered = append(filtered, doc)
