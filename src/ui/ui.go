@@ -18,6 +18,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
@@ -81,11 +82,11 @@ func ShowWindow() {
 	}
 	g.CurrentMode = g.ModeSearchProgram
 	active.clearItems()
-	active.controller.Post(presentation.Command{Kind: presentation.CommandShow})
-	active.controller.Post(presentation.Command{Kind: presentation.CommandSetMode, Mode: g.ModeSearchProgram})
-	active.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageLauncher})
-	active.controller.Post(presentation.Command{Kind: presentation.CommandSetQuery})
-	active.controller.Post(presentation.Command{Kind: presentation.CommandSetResults})
+	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandShow})
+	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetMode, Mode: g.ModeSearchProgram})
+	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageLauncher})
+	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetQuery})
+	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
 	active.message(g.AppName + "\nMenu -> Help")
 	_ = active.windowControl.ShowAndFocus()
 	active.window.Invalidate()
@@ -306,7 +307,20 @@ func (l *launcher) selectResult(index int) {
 	if index >= s.ResultCount {
 		index = s.ResultCount - 1
 	}
-	l.controller.Post(presentation.Command{Kind: presentation.CommandSelectResult, Selected: index})
+	if l.list.Position.Count > 0 {
+		first := l.list.Position.First
+		last := first + l.list.Position.Count - 1
+		if l.list.Position.Count > 2 {
+			last -= 2
+		}
+		switch {
+		case index < first:
+			l.list.ScrollBy(float32(index - first))
+		case index > last:
+			l.list.ScrollBy(float32(index - last))
+		}
+	}
+	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSelectResult, Selected: index})
 }
 func (l *launcher) open(index int) {
 	l.mu.RLock()
@@ -360,7 +374,7 @@ func (l *launcher) layout(gtx layout.Context) layout.Dimensions {
 		case presentation.PageMenu:
 			return l.menuPage(gtx)
 		case presentation.PageHelp:
-			return l.textPage(gtx, "Help", "ALT + O: Summon\nESC: Hide\nDelete: Hide app\n\n:p Program search\n:d Document search\n:w Internet search\n:s Switch window\n:g Quick GPT\n:r Re-index\n:x Quit\n\nUse = for calculations and conversions.")
+			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nDelete: Hide app\n\n:p Program search\n:d Document search\n:w Internet search\n:s Switch window\n:g Quick GPT\n:r Re-index\n:x Quit\n\nUse = for calculations and conversions.")
 		case presentation.PageSettings:
 			return l.settingsPage(gtx)
 		case presentation.PageAbout:
@@ -388,7 +402,11 @@ func (l *launcher) launcherPage(gtx layout.Context, s presentation.State) layout
 	}), layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.resultsPage(gtx, s) }))
 	if s.FocusSearch {
 		gtx.Source.Execute(key.FocusCmd{Tag: &l.editor})
-		l.controller.Post(presentation.Command{Kind: presentation.CommandFocusHandled})
+		if gtx.Focused(&l.editor) {
+			l.controller.Post(presentation.Command{Kind: presentation.CommandFocusHandled})
+		} else {
+			l.window.Invalidate()
+		}
 	}
 	return dimensions
 }
@@ -418,7 +436,7 @@ func (l *launcher) resultsPage(gtx layout.Context, s presentation.State) layout.
 		if index == s.Selected {
 			text = "> " + text
 		}
-		return l.button(gtx, &l.results[index], text)
+		return l.resultButton(gtx, &l.results[index], text)
 	})
 }
 
@@ -522,6 +540,21 @@ func (l *launcher) button(gtx layout.Context, c *widget.Clickable, text string) 
 func (l *launcher) menuButton(gtx layout.Context, c *widget.Clickable, text string) layout.Dimensions {
 	return layout.Inset{Bottom: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return l.button(gtx, c, text)
+	})
+}
+
+func (l *launcher) resultButton(gtx layout.Context, c *widget.Clickable, label string) layout.Dimensions {
+	b := material.ButtonLayout(l.theme, c)
+	b.Background = color.NRGBA{R: 0x46, G: 0x38, B: 0x38, A: 255}
+	b.CornerRadius = 0
+	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			style := material.Label(l.theme, unit.Sp(10.5), label)
+			style.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+			style.Alignment = text.Start
+			return style.Layout(gtx)
+		})
 	})
 }
 

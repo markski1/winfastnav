@@ -49,7 +49,7 @@ func listenHotkeys() {
 		ui.ShowWindow()
 	})
 	if err != nil {
-		log.Printf("failed to register Alt+O hotkey: %v", err)
+		log.Printf("failed to register Alt+Space hotkey: %v", err)
 		return
 	}
 	keyboardHotkey = listener

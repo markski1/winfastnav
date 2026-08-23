@@ -12,11 +12,11 @@ import (
 )
 
 const (
-	modifierAlt = 0x0001
-	virtualKeyO = 0x4f
-	hotkeyID    = 1
-	wmHotkey    = 0x0312
-	wmQuit      = 0x0012
+	modifierAlt     = 0x0001
+	virtualKeySpace = 0x20
+	hotkeyID        = 1
+	wmHotkey        = 0x0312
+	wmQuit          = 0x0012
 )
 
 var (
@@ -76,9 +76,9 @@ func (l *Listener) run(onHotkey func(), ready chan<- error) {
 	l.threadID = uint32(threadID)
 	l.mu.Unlock()
 
-	registered, _, err := procRegisterHotKey.Call(0, hotkeyID, modifierAlt, virtualKeyO)
+	registered, _, err := procRegisterHotKey.Call(0, hotkeyID, modifierAlt, virtualKeySpace)
 	if registered == 0 {
-		ready <- fmt.Errorf("register Alt+O hotkey: %w", err)
+		ready <- fmt.Errorf("register Alt+Space hotkey: %w", err)
 		return
 	}
 	defer procUnregisterHotKey.Call(0, hotkeyID)
