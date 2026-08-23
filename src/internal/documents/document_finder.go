@@ -10,6 +10,7 @@ import (
 	"sync"
 	"syscall"
 	g "winfastnav/internal/globals"
+	"winfastnav/internal/recent"
 	"winfastnav/internal/utils"
 )
 
@@ -111,12 +112,22 @@ func FilterDocumentsByName(namePattern string) []g.Resource {
 		if strings.Contains(strings.ToLower(doc.Name), pattern) {
 			filtered = append(filtered, doc)
 		}
-		if len(filtered) >= 30 {
-			break
-		}
 	}
+	return limitDocuments(recent.Rank(filtered))
+}
 
-	return filtered
+func RecentDocuments() []g.Resource {
+	documentCacheMu.RLock()
+	resources := append([]g.Resource(nil), DocumentCache...)
+	documentCacheMu.RUnlock()
+	return limitDocuments(recent.Only(resources))
+}
+
+func limitDocuments(resources []g.Resource) []g.Resource {
+	if len(resources) > 30 {
+		return resources[:30]
+	}
+	return resources
 }
 
 func OpenFile(path string) error {
@@ -124,5 +135,9 @@ func OpenFile(path string) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow: true,
 	}
-	return cmd.Start()
+	err := cmd.Start()
+	if err == nil {
+		recent.Record(path)
+	}
+	return err
 }

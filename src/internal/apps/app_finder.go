@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	g "winfastnav/internal/globals"
@@ -37,7 +38,6 @@ func GetInstalledApps() []g.Resource {
 		"redistributable",
 		"x64-based systems",
 		"application verifier",
-		"install",
 		"unins",
 		"sdk",
 		"runtime",
@@ -107,6 +107,7 @@ func GetInstalledApps() []g.Resource {
 		}
 	}
 
+	apps = scanAppPaths(apps)
 	apps = scanStartMenu(apps)
 
 	var cleanApps []g.Resource
@@ -128,13 +129,21 @@ func GetInstalledApps() []g.Resource {
 }
 
 func cleanExecutablePath(path string) string {
-	if i := strings.Index(path, ","); i != -1 {
+	path = strings.TrimSpace(os.ExpandEnv(path))
+	if strings.HasPrefix(path, `"`) {
+		if end := strings.Index(path[1:], `"`); end >= 0 {
+			path = path[1 : end+1]
+		}
+	} else if i := strings.Index(path, ","); i != -1 {
 		path = path[:i]
 	}
-	return strings.TrimSpace(strings.ToLower(path))
+	return strings.ToLower(strings.Trim(strings.TrimSpace(path), `"`))
 }
 
 func resolveShortcut(path string) (string, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	err := ole.CoInitialize(0)
 	if err != nil {
 		return "", err
@@ -167,6 +176,45 @@ func resolveShortcut(path string) (string, error) {
 	return tp.ToString(), nil
 }
 
+func scanAppPaths(currentAppList []g.Resource) []g.Resource {
+	keys := []registry.Key{registry.LOCAL_MACHINE, registry.CURRENT_USER}
+	basePaths := []string{
+		`SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths`,
+		`SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\App Paths`,
+	}
+
+	for _, keyRoot := range keys {
+		for _, basePath := range basePaths {
+			key, err := registry.OpenKey(keyRoot, basePath, registry.READ)
+			if err != nil {
+				continue
+			}
+			names, err := key.ReadSubKeyNames(-1)
+			_ = key.Close()
+			if err != nil {
+				continue
+			}
+			for _, name := range names {
+				entry, err := registry.OpenKey(keyRoot, basePath+`\`+name, registry.READ)
+				if err != nil {
+					continue
+				}
+				path, _, err := entry.GetStringValue("")
+				_ = entry.Close()
+				if err != nil {
+					continue
+				}
+				path = cleanExecutablePath(path)
+				if path == "" || !strings.HasSuffix(path, ".exe") || hasApplication(currentAppList, name, path) {
+					continue
+				}
+				currentAppList = append(currentAppList, g.Resource{Name: strings.TrimSuffix(name, filepath.Ext(name)), Filepath: path})
+			}
+		}
+	}
+	return currentAppList
+}
+
 // Search for programs by grabbing .lnk's off the start menu
 func scanStartMenu(currentAppList []g.Resource) []g.Resource {
 	dirs := []string{
@@ -192,7 +240,7 @@ func scanStartMenu(currentAppList []g.Resource) []g.Resource {
 				}
 			}
 
-			currentAppList = append(currentAppList, g.Resource{Name: strings.TrimSpace(name), Filepath: strings.ToLower(target)})
+			currentAppList = append(currentAppList, g.Resource{Name: strings.TrimSpace(name), Filepath: cleanExecutablePath(target)})
 			return nil
 		})
 		if err != nil {
@@ -200,4 +248,13 @@ func scanStartMenu(currentAppList []g.Resource) []g.Resource {
 		}
 	}
 	return currentAppList
+}
+
+func hasApplication(apps []g.Resource, name, path string) bool {
+	for _, app := range apps {
+		if strings.EqualFold(app.Filepath, path) || strings.EqualFold(app.Name, strings.TrimSuffix(name, filepath.Ext(name))) {
+			return true
+		}
+	}
+	return false
 }

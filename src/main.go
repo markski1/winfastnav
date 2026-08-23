@@ -9,6 +9,7 @@ import (
 	"winfastnav/internal/apps"
 	"winfastnav/internal/documents"
 	"winfastnav/internal/hotkey"
+	"winfastnav/internal/recent"
 	"winfastnav/internal/settings"
 	"winfastnav/ui"
 )
@@ -36,6 +37,7 @@ func main() {
 	}()
 
 	settings.SetupSettings()
+	recent.Load()
 	ui.SetupUI()
 	go documents.SetupDocs()
 	go apps.SetupApps()

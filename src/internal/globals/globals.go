@@ -7,14 +7,13 @@ import (
 type Resource struct {
 	Name     string
 	Filepath string
+	Computed bool
 }
 
 const (
 	ModeSearchProgram  = 10
 	ModeSearchDocument = 11
 	ModeSearchInternet = 12
-
-	ModeChooseProgram = 21
 
 	ModeAskGPT = 31
 )

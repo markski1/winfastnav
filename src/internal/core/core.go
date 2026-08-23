@@ -13,31 +13,21 @@ import (
 
 func HandleTextInput(query string) (retItems []globals.Resource, resultStr *string) {
 	if len(query) == 0 {
+		switch globals.CurrentMode {
+		case globals.ModeSearchProgram:
+			return apps.RecentApplications(), nil
+		case globals.ModeSearchDocument:
+			return documents.RecentDocuments(), nil
+		}
 		return nil, nil
 	}
 
-	// evaluations
-	if query[0] == '=' {
-		result := ""
-		expr := strings.ReplaceAll(query, "=", "")
-		// Try to do math eval
-		if utils.IsMath(expr) {
-			expr := strings.ReplaceAll(expr, " ", "")
-			if result, err := utils.EvalMath(expr); err == nil {
-				return nil, &result
-			}
-		}
-		// Otherwise try a conversion
-		if utils.HasUnit(expr) {
-			result = utils.ConvertUnit(expr)
-			return nil, &result
-		}
-		// Otherwise show an explanation
-		result = "Enter a mathematical expression (2+2) or unit to convert (20in).\n" +
-			"\n" +
+	calculation, calculated := calculate(query)
+	if strings.HasPrefix(strings.TrimSpace(query), "=") && !calculated {
+		help := "Enter a mathematical expression (2+2) or unit to convert (20in).\n\n" +
 			"Supported units: Weight, length, speed and temperature.\n" +
 			"Supported operators: +, -, *, /"
-		return nil, &result
+		return nil, &help
 	}
 
 	switch globals.CurrentMode {
@@ -48,11 +38,11 @@ func HandleTextInput(query string) (retItems []globals.Resource, resultStr *stri
 
 	case globals.ModeSearchProgram:
 		findItems := apps.FindAppResults(query)
-		return findItems, nil
+		return withCalculation(findItems, calculation, calculated), nil
 
 	case globals.ModeSearchDocument:
 		findItems := documents.FilterDocumentsByName(query)
-		return findItems, nil
+		return withCalculation(findItems, calculation, calculated), nil
 
 	case globals.ModeAskGPT:
 		s := fmt.Sprintf("Quick GPT: %s", query)
@@ -61,6 +51,31 @@ func HandleTextInput(query string) (retItems []globals.Resource, resultStr *stri
 	}
 
 	return nil, nil
+}
+
+func calculate(query string) (string, bool) {
+	expression := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(query), "="))
+	if expression == "" {
+		return "", false
+	}
+	if utils.IsMath(expression) {
+		result, err := utils.EvalMath(strings.ReplaceAll(expression, " ", ""))
+		return result, err == nil
+	}
+	if result := utils.ConvertUnit(expression); result != "" {
+		return result, true
+	}
+	return "", false
+}
+
+func withCalculation(resources []globals.Resource, calculation string, calculated bool) []globals.Resource {
+	if !calculated {
+		return resources
+	}
+	display := strings.ReplaceAll(calculation, "\n", "  /  ")
+	result := make([]globals.Resource, 0, len(resources)+1)
+	result = append(result, globals.Resource{Name: display, Computed: true})
+	return append(result, resources...)
 }
 
 // UpdateSearchSetting updates the saved search-string.

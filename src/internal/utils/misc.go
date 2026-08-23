@@ -114,6 +114,30 @@ func AddToStartup() error {
 	return err
 }
 
+func IsInStartup() bool {
+	exePath, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	key, err := registry.OpenKey(registry.CURRENT_USER,
+		`Software\Microsoft\Windows\CurrentVersion\Run`,
+		registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer key.Close()
+	value, _, err := key.GetStringValue("WinFastNav")
+	return err == nil && strings.EqualFold(value, exePath)
+}
+
+func RevealInFolder(path string) error {
+	cmd := exec.Command("explorer.exe", "/select,"+path)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow: true,
+	}
+	return cmd.Start()
+}
+
 func OpenURI(uri string) error {
 	log.Printf("Opening URI: %s", uri)
 	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", uri)

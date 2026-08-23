@@ -31,7 +31,7 @@ func HasUnit(s string) bool {
 		"f", "fahrenheit",
 		"k", "kelvin",
 		// speed
-		"m/s", "mps", "ms-1", "m·s-1",
+		"m/s", "mps", "ms-1",
 		"km/h", "kph", "kmh",
 		"mph",
 		"ft/s", "fps",
@@ -88,7 +88,7 @@ func ConvertUnit(s string) string {
 	// speed synonyms
 	case "kph", "kmh":
 		unit = "km/h"
-	case "mps", "ms-1", "m·s-1":
+	case "mps", "ms-1":
 		unit = "m/s"
 	case "fps", "ft/s":
 		unit = "ft/s"

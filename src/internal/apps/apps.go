@@ -7,6 +7,7 @@ import (
 	"sync"
 	"syscall"
 	g "winfastnav/internal/globals"
+	"winfastnav/internal/recent"
 )
 
 var appListMu sync.RWMutex
@@ -30,13 +31,23 @@ func FindAppResults(needle string) []g.Resource {
 	for _, app := range g.AppList {
 		if strings.Contains(strings.ToLower(app.Name), needle) || strings.Contains(strings.ToLower(app.Filepath), needle) {
 			results = append(results, app)
-			if len(results) >= 30 {
-				break
-			}
 		}
 	}
+	return limitResults(recent.Rank(results))
+}
 
-	return results
+func RecentApplications() []g.Resource {
+	appListMu.RLock()
+	resources := append([]g.Resource(nil), g.AppList...)
+	appListMu.RUnlock()
+	return limitResults(recent.Only(resources))
+}
+
+func limitResults(resources []g.Resource) []g.Resource {
+	if len(resources) > 30 {
+		return resources[:30]
+	}
+	return resources
 }
 
 func OpenProgram(execPath string) error {
@@ -44,5 +55,9 @@ func OpenProgram(execPath string) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow: true,
 	}
-	return cmd.Start()
+	err := cmd.Start()
+	if err == nil {
+		recent.Record(execPath)
+	}
+	return err
 }
