@@ -52,6 +52,9 @@ func limitResults(resources []g.Resource) []g.Resource {
 
 func OpenProgram(execPath string) error {
 	cmd := exec.Command(execPath)
+	if isAppsFolderPath(execPath) {
+		cmd = exec.Command("explorer.exe", execPath)
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow: true,
 	}

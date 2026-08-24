@@ -11,13 +11,16 @@ import (
 	"winfastnav/internal/utils"
 )
 
+const (
+	maxCombinedResults = 30
+	maxAppResults      = 20
+)
+
 func HandleTextInput(query string) (retItems []globals.Resource, resultStr *string) {
 	if len(query) == 0 {
 		switch globals.CurrentMode {
 		case globals.ModeSearchProgram:
-			return apps.RecentApplications(), nil
-		case globals.ModeSearchDocument:
-			return documents.RecentDocuments(), nil
+			return combineResults(apps.RecentApplications(), documents.RecentDocuments()), nil
 		}
 		return nil, nil
 	}
@@ -37,12 +40,9 @@ func HandleTextInput(query string) (retItems []globals.Resource, resultStr *stri
 		return nil, &s
 
 	case globals.ModeSearchProgram:
-		findItems := apps.FindAppResults(query)
-		return withCalculation(findItems, calculation, calculated), nil
-
-	case globals.ModeSearchDocument:
-		findItems := documents.FilterDocumentsByName(query)
-		return withCalculation(findItems, calculation, calculated), nil
+		appResults := apps.FindAppResults(query)
+		documentResults := documents.FilterDocumentsByName(query)
+		return withCalculation(combineResults(appResults, documentResults), calculation, calculated), nil
 
 	case globals.ModeAskGPT:
 		s := fmt.Sprintf("Quick GPT: %s", query)
@@ -72,10 +72,27 @@ func withCalculation(resources []globals.Resource, calculation string, calculate
 	if !calculated {
 		return resources
 	}
+	if len(resources) >= maxCombinedResults {
+		resources = resources[:maxCombinedResults-1]
+	}
 	display := strings.ReplaceAll(calculation, "\n", "  /  ")
 	result := make([]globals.Resource, 0, len(resources)+1)
 	result = append(result, globals.Resource{Name: display, Computed: true})
 	return append(result, resources...)
+}
+
+func combineResults(appResults, documentResults []globals.Resource) []globals.Resource {
+	limit := min(len(appResults), maxAppResults)
+	combined := append([]globals.Resource(nil), appResults[:limit]...)
+	remaining := maxCombinedResults - len(combined)
+	if remaining > 0 {
+		limit = min(len(documentResults), remaining)
+		for _, document := range documentResults[:limit] {
+			document.Document = true
+			combined = append(combined, document)
+		}
+	}
+	return combined
 }
 
 // UpdateSearchSetting updates the saved search-string.

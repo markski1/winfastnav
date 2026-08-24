@@ -1,18 +1,22 @@
 package apps
 
 import (
-	"github.com/go-ole/go-ole"
-	"github.com/go-ole/go-ole/oleutil"
-	"golang.org/x/sys/windows/registry"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/go-ole/go-ole"
+	"github.com/go-ole/go-ole/oleutil"
+	"golang.org/x/sys/windows/registry"
+
 	g "winfastnav/internal/globals"
 	"winfastnav/internal/utils"
 )
+
+const appsFolderPrefix = `shell:AppsFolder\`
 
 func GetInstalledApps() []g.Resource {
 	keys := []registry.Key{
@@ -38,6 +42,10 @@ func GetInstalledApps() []g.Resource {
 		"redistributable",
 		"x64-based systems",
 		"application verifier",
+		"teams meeting add-in",
+		"teams machine-wide installer",
+		"ms teams",
+		"msteams",
 		"unins",
 		"sdk",
 		"runtime",
@@ -46,8 +54,12 @@ func GetInstalledApps() []g.Resource {
 
 	var apps []g.Resource
 
-	// Somehow not found by default
-	apps = append(apps, g.Resource{Name: "Calculator", Filepath: "calc.exe"})
+	apps = append(apps, calculatorResource())
+	apps = scanAppsFolder(apps)
+	// Windows Search presents Start Menu launchers. Index them before the registry metadata stuff
+	// because these will be less likely to be shit.
+	apps = scanStartMenu(apps)
+	apps = scanAppPaths(apps)
 
 	for _, keyRoot := range keys {
 		for _, basePath := range basePaths {
@@ -100,22 +112,19 @@ func GetInstalledApps() []g.Resource {
 					continue
 				}
 
-				// Sometimes there's a comma and extra params, clear those out
-				apps = append(apps, g.Resource{Name: strings.TrimSpace(displayName), Filepath: cleanExecutablePath(execPath)})
+				execPath = cleanExecutablePath(execPath)
+				if execPath != "" && strings.HasSuffix(execPath, ".exe") && !hasApplication(apps, displayName, execPath) {
+					apps = append(apps, g.Resource{Name: strings.TrimSpace(displayName), Filepath: execPath})
+				}
 				_ = subKey.Close()
 			}
 		}
 	}
-
-	apps = scanAppPaths(apps)
-	apps = scanStartMenu(apps)
-
 	var cleanApps []g.Resource
 
 	// remove undesirables
 	for i, app := range apps {
-		if !(!strings.Contains(app.Filepath, ".exe") || utils.ContainsAny(app.Filepath, skipIfSubstr) ||
-			utils.ContainsAny(strings.ToLower(app.Name), skipIfSubstr) || utils.ContainsAny(app.Filepath, g.ExecBlocklist)) {
+		if isAllowedApplication(app, skipIfSubstr, g.ExecBlocklist) {
 			cleanApps = append(cleanApps, apps[i])
 		}
 	}
@@ -128,6 +137,14 @@ func GetInstalledApps() []g.Resource {
 	return cleanApps
 }
 
+func calculatorResource() g.Resource {
+	systemRoot := os.Getenv("SystemRoot")
+	if systemRoot == "" {
+		return g.Resource{Name: "Calculator", Filepath: "calc.exe"}
+	}
+	return g.Resource{Name: "Calculator", Filepath: filepath.Join(systemRoot, "System32", "calc.exe")}
+}
+
 func cleanExecutablePath(path string) string {
 	path = strings.TrimSpace(os.ExpandEnv(path))
 	if strings.HasPrefix(path, `"`) {
@@ -138,6 +155,29 @@ func cleanExecutablePath(path string) string {
 		path = path[:i]
 	}
 	return strings.ToLower(strings.Trim(strings.TrimSpace(path), `"`))
+}
+
+func isLaunchableApplication(path string) bool {
+	return strings.HasSuffix(strings.ToLower(path), ".exe") || isAppsFolderPath(path)
+}
+
+func isAppsFolderPath(path string) bool {
+	return strings.HasPrefix(strings.ToLower(path), strings.ToLower(appsFolderPrefix)) && len(path) > len(appsFolderPrefix)
+}
+
+func isAllowedApplication(app g.Resource, skipIfSubstr, blocklist []string) bool {
+	path := strings.ToLower(app.Filepath)
+	return isLaunchableApplication(path) && !utils.ContainsAny(path, skipIfSubstr) &&
+		!utils.ContainsAny(strings.ToLower(app.Name), skipIfSubstr) && !containsAnyFold(path, blocklist)
+}
+
+func containsAnyFold(value string, values []string) bool {
+	for _, item := range values {
+		if strings.Contains(value, strings.ToLower(item)) {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveShortcut(path string) (string, error) {
@@ -215,6 +255,105 @@ func scanAppPaths(currentAppList []g.Resource) []g.Resource {
 	return currentAppList
 }
 
+func scanAppsFolder(currentAppList []g.Resource) []g.Resource {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	if err := ole.CoInitialize(0); err != nil {
+		return currentAppList
+	}
+	defer ole.CoUninitialize()
+
+	shellObject, err := oleutil.CreateObject("Shell.Application")
+	if err != nil {
+		return currentAppList
+	}
+	defer shellObject.Release()
+
+	shell, err := shellObject.QueryInterface(ole.IID_IDispatch)
+	if err != nil {
+		return currentAppList
+	}
+	defer shell.Release()
+
+	namespaceRaw, err := oleutil.CallMethod(shell, "NameSpace", "shell:AppsFolder")
+	if err != nil {
+		return currentAppList
+	}
+	namespace := namespaceRaw.ToIDispatch()
+	if namespace == nil {
+		return currentAppList
+	}
+	defer namespace.Release()
+
+	itemsRaw, err := oleutil.GetProperty(namespace, "Items")
+	if err != nil {
+		return currentAppList
+	}
+	items := itemsRaw.ToIDispatch()
+	if items == nil {
+		return currentAppList
+	}
+	defer items.Release()
+
+	countRaw, err := oleutil.GetProperty(items, "Count")
+	if err != nil {
+		return currentAppList
+	}
+	count, ok := oleInteger(countRaw)
+	_ = countRaw.Clear()
+	if !ok {
+		return currentAppList
+	}
+
+	for index := 0; index < count; index++ {
+		itemRaw, err := oleutil.CallMethod(items, "Item", index)
+		if err != nil {
+			continue
+		}
+		item := itemRaw.ToIDispatch()
+		if item == nil {
+			continue
+		}
+		name := oleStringProperty(item, "Name")
+		appID := oleStringProperty(item, "Path")
+		item.Release()
+
+		path := appsFolderPrefix + appID
+		if name == "" || appID == "" || hasApplication(currentAppList, name, path) {
+			continue
+		}
+		currentAppList = append(currentAppList, g.Resource{Name: name, Filepath: path})
+	}
+	return currentAppList
+}
+
+func oleInteger(value *ole.VARIANT) (int, bool) {
+	switch number := value.Value().(type) {
+	case int:
+		return number, true
+	case int32:
+		return int(number), true
+	case uint32:
+		return int(number), true
+	case int64:
+		return int(number), true
+	case uint64:
+		return int(number), true
+	default:
+		return 0, false
+	}
+}
+
+func oleStringProperty(item *ole.IDispatch, name string) string {
+	value, err := oleutil.GetProperty(item, name)
+	if err != nil {
+		return ""
+	}
+	defer value.Clear()
+	return strings.TrimSpace(value.ToString())
+}
+
 // Search for programs by grabbing .lnk's off the start menu
 func scanStartMenu(currentAppList []g.Resource) []g.Resource {
 	dirs := []string{
@@ -231,20 +370,21 @@ func scanStartMenu(currentAppList []g.Resource) []g.Resource {
 			if err != nil || target == "" {
 				return nil
 			}
+			target = cleanExecutablePath(target)
+			if !strings.HasSuffix(target, ".exe") {
+				return nil
+			}
 			name := strings.TrimSuffix(de.Name(), ".lnk")
 
-			// No repeats
-			for _, app := range currentAppList {
-				if strings.EqualFold(app.Filepath, target) || strings.EqualFold(app.Name, name) {
-					return nil
-				}
+			if hasApplication(currentAppList, name, target) {
+				return nil
 			}
 
-			currentAppList = append(currentAppList, g.Resource{Name: strings.TrimSpace(name), Filepath: cleanExecutablePath(target)})
+			currentAppList = append(currentAppList, g.Resource{Name: strings.TrimSpace(name), Filepath: target})
 			return nil
 		})
 		if err != nil {
-			return nil
+			continue
 		}
 	}
 	return currentAppList

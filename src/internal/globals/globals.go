@@ -8,18 +8,18 @@ type Resource struct {
 	Name     string
 	Filepath string
 	Computed bool
+	Document bool
 }
 
 const (
 	ModeSearchProgram  = 10
-	ModeSearchDocument = 11
 	ModeSearchInternet = 12
 
 	ModeAskGPT = 31
 )
 
 var (
-	AppName       = "winfastnav v0.5"
+	AppName       = "winfastnav v0.6"
 	AppList       []Resource
 	ExecBlocklist []string
 	SearchString  string

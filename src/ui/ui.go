@@ -38,32 +38,34 @@ import (
 const maxResults = 30
 
 type launcher struct {
-	controller                                                *presentation.Controller
-	windowControl                                             *windowcontrol.Controller
-	window                                                    app.Window
-	ops                                                       op.Ops
-	theme                                                     *material.Theme
-	icons                                                     *appicons.Cache
-	editor, settings                                          widget.Editor
-	list                                                      widget.List
-	results                                                   [maxResults]widget.Clickable
-	menu, modeButton, back, help, settingsButton, about, quit widget.Clickable
-	startup, clear, confirm, cancel                           widget.Clickable
-	mu                                                        sync.RWMutex
-	items                                                     []g.Resource
-	confirmClear                                              bool
-	startupEnabled                                            bool
-	settingsStatus                                            string
-	centered                                                  bool
+	controller                                    *presentation.Controller
+	windowControl                                 *windowcontrol.Controller
+	window                                        app.Window
+	ops                                           op.Ops
+	theme                                         *material.Theme
+	icons                                         *appicons.Cache
+	editor, settings                              widget.Editor
+	list                                          widget.List
+	results                                       [maxResults + 2]widget.Clickable
+	menu, back, help, settingsButton, about, quit widget.Clickable
+	startup, clear, confirm, cancel               widget.Clickable
+	mu                                            sync.RWMutex
+	items                                         []g.Resource
+	confirmClear                                  bool
+	startupEnabled                                bool
+	settingsStatus                                string
+	centered                                      bool
 }
 
 var active *launcher
 
 type resultRow struct {
-	title    string
-	detail   string
-	iconPath string
-	kind     string
+	title         string
+	detail        string
+	iconPath      string
+	kind          string
+	resourceIndex int
+	section       bool
 }
 
 func SetupUI() {
@@ -74,6 +76,7 @@ func SetupUI() {
 	active.window.Option(app.Title(g.AppName), app.Size(unit.Dp(580), unit.Dp(460)), app.MinSize(unit.Dp(580), unit.Dp(460)), app.MaxSize(unit.Dp(580), unit.Dp(460)), app.Decorated(false), app.TopMost(true))
 	active.windowControl = windowcontrol.New(g.AppName)
 	active.controller.Post(presentation.Command{Kind: presentation.CommandShow})
+	active.controller.Post(presentation.Command{Kind: presentation.CommandFocusSearch})
 	active.message(g.AppName + "\nMenu -> Help")
 }
 
@@ -102,6 +105,7 @@ func ShowWindow() {
 	active.query("")
 	active.message(g.AppName + "\nMenu -> Help")
 	_ = active.windowControl.ShowAndFocus()
+	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandFocusSearch})
 	active.window.Invalidate()
 }
 
@@ -237,6 +241,14 @@ func (l *launcher) key(gtx layout.Context, event key.Event) {
 }
 
 func (l *launcher) query(query string) {
+	if query == ":g" {
+		l.activateCommandMode(g.ModeAskGPT)
+		return
+	}
+	if query == ":w" {
+		l.activateCommandMode(g.ModeSearchInternet)
+		return
+	}
 	l.controller.Post(presentation.Command{Kind: presentation.CommandSetQuery, Query: query})
 	items, message := core.HandleTextInput(query)
 	if message != nil {
@@ -245,7 +257,7 @@ func (l *launcher) query(query string) {
 		l.message(*message)
 		return
 	}
-	if g.CurrentMode == g.ModeSearchProgram || g.CurrentMode == g.ModeSearchDocument {
+	if g.CurrentMode == g.ModeSearchProgram {
 		l.mu.Lock()
 		l.items = items
 		l.mu.Unlock()
@@ -267,8 +279,6 @@ func (l *launcher) submit(input string) {
 		switch input[1] {
 		case 'p':
 			l.mode(g.ModeSearchProgram)
-		case 'd':
-			l.mode(g.ModeSearchDocument)
 		case 'w':
 			l.mode(g.ModeSearchInternet)
 		case 'g':
@@ -324,6 +334,16 @@ func (l *launcher) mode(mode int) {
 	l.message("")
 	l.query(l.editor.Text())
 }
+
+func (l *launcher) activateCommandMode(mode int) {
+	g.CurrentMode = mode
+	l.clearItems()
+	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetMode, Mode: mode})
+	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetQuery})
+	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
+	l.message("")
+	l.editor.SetText("")
+}
 func (l *launcher) selectResult(index int) {
 	s := l.controller.Snapshot()
 	if s.ResultCount == 0 {
@@ -336,16 +356,23 @@ func (l *launcher) selectResult(index int) {
 		index = s.ResultCount - 1
 	}
 	if l.list.Position.Count > 0 {
+		targetRow := index
+		for rowIndex, row := range l.resultRows() {
+			if !row.section && row.resourceIndex == index {
+				targetRow = rowIndex
+				break
+			}
+		}
 		first := l.list.Position.First
 		last := first + l.list.Position.Count - 1
 		if l.list.Position.Count > 2 {
 			last -= 2
 		}
 		switch {
-		case index < first:
-			l.list.ScrollBy(float32(index - first))
-		case index > last:
-			l.list.ScrollBy(float32(index - last))
+		case targetRow < first:
+			l.list.ScrollBy(float32(targetRow - first))
+		case targetRow > last:
+			l.list.ScrollBy(float32(targetRow - last))
 		}
 	}
 	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSelectResult, Selected: index})
@@ -364,10 +391,10 @@ func (l *launcher) open(index int) {
 		return
 	}
 	var err error
-	if g.CurrentMode == g.ModeSearchProgram {
-		err = apps.OpenProgram(item.Filepath)
-	} else if g.CurrentMode == g.ModeSearchDocument {
+	if item.Document {
 		err = documents.OpenFile(item.Filepath)
+	} else {
+		err = apps.OpenProgram(item.Filepath)
 	}
 	if err != nil {
 		l.message("Sorry, there was an error opening the selected item.")
@@ -383,26 +410,15 @@ func (l *launcher) block(index int) {
 	}
 	item := l.items[index]
 	l.mu.RUnlock()
-	if item.Computed {
+	if item.Computed || item.Document {
 		return
 	}
 	apps.BlockApplication(item)
 	l.query(l.editor.Text())
 }
 
-func (l *launcher) cycleMode() {
-	switch g.CurrentMode {
-	case g.ModeSearchProgram:
-		l.mode(g.ModeSearchDocument)
-	case g.ModeSearchDocument:
-		l.mode(g.ModeSearchInternet)
-	default:
-		l.mode(g.ModeSearchProgram)
-	}
-}
-
 func (l *launcher) selectedPath(index int) string {
-	if index < 0 || (g.CurrentMode != g.ModeSearchProgram && g.CurrentMode != g.ModeSearchDocument) {
+	if index < 0 || g.CurrentMode != g.ModeSearchProgram {
 		return ""
 	}
 	l.mu.RLock()
@@ -410,7 +426,11 @@ func (l *launcher) selectedPath(index int) string {
 	if index >= len(l.items) {
 		return ""
 	}
-	return l.items[index].Filepath
+	path := l.items[index].Filepath
+	if !filepath.IsAbs(path) {
+		return ""
+	}
+	return path
 }
 
 func (l *launcher) revealSelected() {
@@ -448,7 +468,7 @@ func (l *launcher) layout(gtx layout.Context) layout.Dimensions {
 		case presentation.PageMenu:
 			return l.menuPage(gtx)
 		case presentation.PageHelp:
-			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nDelete: Hide app\n\n:p Program search\n:d Document search\n:w Internet search\n:g Quick GPT\n:r Re-index\n:x Quit\n\nType 2+2 or 20in for calculations and conversions.")
+			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nDelete: Hide app\n\n:w Internet search\n:g Quick GPT\n:r Re-index\n:x Quit\n\nType 2+2 or 20in for calculations and conversions.")
 		case presentation.PageSettings:
 			return l.settingsPage(gtx)
 		case presentation.PageAbout:
@@ -463,13 +483,7 @@ func (l *launcher) launcherPage(gtx layout.Context, s presentation.State) layout
 	for l.menu.Clicked(gtx) {
 		l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageMenu})
 	}
-	for l.modeButton.Clicked(gtx) {
-		l.cycleMode()
-	}
 	hint := placeholder(s.Mode)
-	if s.Mode == g.ModeSearchDocument && !g.FinishedCachingDocs {
-		hint = "Document search [still caching]..."
-	}
 	editor := material.Editor(l.theme, &l.editor, hint)
 	editor.TextSize = unit.Sp(13)
 	editor.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
@@ -479,14 +493,10 @@ func (l *launcher) launcherPage(gtx layout.Context, s presentation.State) layout
 			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.input(gtx, editor.Layout) }),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.modeButton, modeTitle(s.Mode)) }),
-				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.menu, "Menu") }),
 			)
 		}),
 		layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.modeStatus(gtx, s) }),
-		layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.resultsPage(gtx, s) }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.keyboardHint(gtx, s) }),
@@ -508,27 +518,42 @@ func (l *launcher) resultsPage(gtx layout.Context, s presentation.State) layout.
 		return l.emptyResults(gtx, s)
 	}
 	return material.List(l.theme, &l.list).Layout(gtx, len(rows), func(gtx layout.Context, index int) layout.Dimensions {
-		for l.results[index].Clicked(gtx) {
-			l.open(index)
+		row := rows[index]
+		if row.section {
+			return l.resultSection(gtx, row.title)
 		}
-		return l.resultButton(gtx, &l.results[index], rows[index], index == s.Selected)
+		for l.results[row.resourceIndex].Clicked(gtx) {
+			l.open(row.resourceIndex)
+		}
+		return l.resultButton(gtx, &l.results[row.resourceIndex], row, row.resourceIndex == s.Selected)
 	})
 }
 
 func (l *launcher) resultRows() []resultRow {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	var rows []resultRow
-	for _, item := range l.items {
+	var calculated, applications, documentsRows []resultRow
+	for resourceIndex, item := range l.items {
 		if item.Computed {
-			rows = append(rows, resultRow{title: item.Name, detail: "Calculated result / Enter to use", kind: "Result"})
+			calculated = append(calculated, resultRow{title: item.Name, detail: "Calculated result / Enter to use", kind: "Result", resourceIndex: resourceIndex})
 			continue
 		}
-		kind := "Application"
-		if g.CurrentMode == g.ModeSearchDocument {
-			kind = "Document"
+		row := resultRow{title: item.Name, detail: filepath.Dir(item.Filepath), iconPath: item.Filepath, kind: "Application", resourceIndex: resourceIndex}
+		if item.Document {
+			row.kind = "Document"
+			documentsRows = append(documentsRows, row)
+			continue
 		}
-		rows = append(rows, resultRow{title: item.Name, detail: filepath.Dir(item.Filepath), iconPath: item.Filepath, kind: kind})
+		applications = append(applications, row)
+	}
+	rows := append([]resultRow(nil), calculated...)
+	if len(applications) > 0 {
+		rows = append(rows, resultRow{title: "APPS", section: true})
+		rows = append(rows, applications...)
+	}
+	if len(documentsRows) > 0 {
+		rows = append(rows, resultRow{title: "DOCUMENTS", section: true})
+		rows = append(rows, documentsRows...)
 	}
 	return rows
 }
@@ -700,7 +725,7 @@ func (l *launcher) resultIcon(gtx layout.Context, row resultRow) layout.Dimensio
 	style := material.Label(l.theme, unit.Sp(12), letter)
 	style.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
 	style.Alignment = text.Middle
-	return style.Layout(gtx)
+	return layout.Center.Layout(gtx, style.Layout)
 }
 
 func (l *launcher) resultText(gtx layout.Context, value string, size unit.Sp, foreground color.NRGBA) layout.Dimensions {
@@ -712,26 +737,10 @@ func (l *launcher) resultText(gtx layout.Context, value string, size unit.Sp, fo
 	return style.Layout(gtx)
 }
 
-func (l *launcher) modeStatus(gtx layout.Context, state presentation.State) layout.Dimensions {
-	label := "Click Apps to switch modes. :p apps  :d documents  :w web"
-	if state.Mode == g.ModeSearchDocument && !g.FinishedCachingDocs {
-		label = "Documents are still indexing. Search will improve as indexing completes."
-	}
-	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			style := material.Label(l.theme, unit.Sp(10.5), strings.ToUpper(modeTitle(state.Mode)))
-			style.Color = color.NRGBA{R: 0xd3, G: 0xaf, B: 0xaf, A: 255}
-			return style.Layout(gtx)
-		}),
-		layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			style := material.Label(l.theme, unit.Sp(10.5), label)
-			style.Color = color.NRGBA{R: 0xa8, G: 0xa2, B: 0xa2, A: 255}
-			style.MaxLines = 1
-			style.Truncator = "…"
-			return style.Layout(gtx)
-		}),
-	)
+func (l *launcher) resultSection(gtx layout.Context, title string) layout.Dimensions {
+	style := material.Label(l.theme, unit.Sp(10.5), title)
+	style.Color = color.NRGBA{R: 0xd3, G: 0xaf, B: 0xaf, A: 255}
+	return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(4)}.Layout(gtx, style.Layout)
 }
 
 func (l *launcher) emptyResults(gtx layout.Context, state presentation.State) layout.Dimensions {
@@ -805,26 +814,11 @@ func (l *launcher) heading(gtx layout.Context, text string) layout.Dimensions {
 }
 func placeholder(mode int) string {
 	switch mode {
-	case g.ModeSearchDocument:
-		return "Document search..."
 	case g.ModeSearchInternet:
 		return "Internet search..."
 	case g.ModeAskGPT:
 		return "Quick GPT..."
 	default:
-		return "Program search..."
-	}
-}
-
-func modeTitle(mode int) string {
-	switch mode {
-	case g.ModeSearchDocument:
-		return "Documents"
-	case g.ModeSearchInternet:
-		return "Web"
-	case g.ModeAskGPT:
-		return "Quick GPT"
-	default:
-		return "Apps"
+		return "Search apps and documents..."
 	}
 }
