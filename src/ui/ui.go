@@ -31,6 +31,7 @@ import (
 	g "winfastnav/internal/globals"
 	appicons "winfastnav/internal/icons"
 	"winfastnav/internal/presentation"
+	"winfastnav/internal/recent"
 	"winfastnav/internal/utils"
 	"winfastnav/internal/windowcontrol"
 )
@@ -176,6 +177,11 @@ func (l *launcher) update(gtx layout.Context) {
 			key.Filter{Name: key.NamePageDown},
 			key.Filter{Name: key.NameReturn, Required: key.ModAlt},
 			key.Filter{Name: key.NameEnter, Required: key.ModAlt},
+			key.Filter{Name: key.NameReturn, Required: key.ModCtrl},
+			key.Filter{Name: key.NameEnter, Required: key.ModCtrl},
+			key.Filter{Name: key.NameReturn, Required: key.ModShift},
+			key.Filter{Name: key.NameEnter, Required: key.ModShift},
+			key.Filter{Name: "C", Required: key.ModCtrl},
 			key.Filter{Name: "C", Required: key.ModCtrl | key.ModShift},
 		)
 		if !ok {
@@ -201,12 +207,20 @@ func (l *launcher) update(gtx layout.Context) {
 
 func (l *launcher) key(gtx layout.Context, event key.Event) {
 	s := l.controller.Snapshot()
+	if (event.Name == key.NameReturn || event.Name == key.NameEnter) && event.Modifiers.Contain(key.ModShift) {
+		l.runSelectedElevated()
+		return
+	}
+	if (event.Name == key.NameReturn || event.Name == key.NameEnter) && event.Modifiers.Contain(key.ModCtrl) {
+		l.revealSelected()
+		return
+	}
 	if (event.Name == key.NameReturn || event.Name == key.NameEnter) && event.Modifiers.Contain(key.ModAlt) {
 		l.revealSelected()
 		return
 	}
-	if event.Name == "C" && event.Modifiers.Contain(key.ModCtrl|key.ModShift) {
-		l.copySelectedPath(gtx)
+	if event.Name == "C" && event.Modifiers.Contain(key.ModCtrl) {
+		l.copySelected(gtx)
 		return
 	}
 
@@ -261,9 +275,16 @@ func (l *launcher) query(query string) {
 		l.mu.Lock()
 		l.items = items
 		l.mu.Unlock()
-		l.controller.Post(presentation.Command{Kind: presentation.CommandSetResults, ResultCount: len(items)})
+		l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults, ResultCount: len(items)})
+		if firstResultSelected(query, len(items)) {
+			l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSelectResult, Selected: 0})
+		}
 		l.message("")
 	}
+}
+
+func firstResultSelected(query string, resultCount int) bool {
+	return strings.TrimSpace(query) != "" && resultCount > 0
 }
 
 func (l *launcher) submit(input string) {
@@ -400,6 +421,9 @@ func (l *launcher) open(index int) {
 		l.message("Sorry, there was an error opening the selected item.")
 		return
 	}
+	if !item.Document {
+		recent.RecordSelection(l.editor.Text(), item.Filepath)
+	}
 	HideWindow()
 }
 func (l *launcher) block(index int) {
@@ -443,12 +467,41 @@ func (l *launcher) revealSelected() {
 	}
 }
 
-func (l *launcher) copySelectedPath(gtx layout.Context) {
-	path := l.selectedPath(l.controller.Snapshot().Selected)
-	if path == "" {
+func (l *launcher) copySelected(gtx layout.Context) {
+	item, ok := l.selectedItem()
+	if !ok {
 		return
 	}
-	gtx.Source.Execute(clipboard.WriteCmd{Type: "text/plain", Data: io.NopCloser(strings.NewReader(path))})
+	value := item.Filepath
+	if item.Computed {
+		value = item.Name
+	}
+	if value != "" {
+		gtx.Source.Execute(clipboard.WriteCmd{Type: "text/plain", Data: io.NopCloser(strings.NewReader(value))})
+	}
+}
+
+func (l *launcher) runSelectedElevated() {
+	item, ok := l.selectedItem()
+	if !ok || item.Computed || item.Document {
+		return
+	}
+	if err := apps.RunProgramElevated(item.Filepath); err != nil {
+		l.message("The selected application cannot be run as administrator.")
+		return
+	}
+	recent.RecordSelection(l.editor.Text(), item.Filepath)
+	HideWindow()
+}
+
+func (l *launcher) selectedItem() (g.Resource, bool) {
+	index := l.controller.Snapshot().Selected
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if index < 0 || index >= len(l.items) {
+		return g.Resource{}, false
+	}
+	return l.items[index], true
 }
 
 func (l *launcher) clearItems() { l.mu.Lock(); l.items = nil; l.mu.Unlock() }
@@ -468,7 +521,7 @@ func (l *launcher) layout(gtx layout.Context) layout.Dimensions {
 		case presentation.PageMenu:
 			return l.menuPage(gtx)
 		case presentation.PageHelp:
-			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nDelete: Hide app\n\n:w Internet search\n:g Quick GPT\n:r Re-index\n:x Quit\n\nType 2+2 or 20in for calculations and conversions.")
+			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nENTER: Open\nCTRL + ENTER: Reveal in Explorer\nSHIFT + ENTER: Run as administrator\nCTRL + C: Copy selected result\nDELETE: Hide app\n\n:w Internet search\n:g Quick GPT\n:r Re-index\n:x Quit\n\nType 2+2 or 20in for calculations and conversions.")
 		case presentation.PageSettings:
 			return l.settingsPage(gtx)
 		case presentation.PageAbout:
@@ -759,8 +812,17 @@ func (l *launcher) emptyResults(gtx layout.Context, state presentation.State) la
 
 func (l *launcher) keyboardHint(gtx layout.Context, state presentation.State) layout.Dimensions {
 	hint := "↑ ↓ move   Enter open   Esc hide   Alt+Space summon"
-	if state.Selected >= 0 && l.selectedPath(state.Selected) != "" {
-		hint = "Alt+Enter show in folder   Ctrl+Shift+C copy path   " + hint
+	if item, ok := l.selectedItem(); ok {
+		hint = "Enter open   Ctrl+C copy"
+		if item.Computed {
+			hint = "Enter use   Ctrl+C copy"
+		}
+		if l.selectedPath(state.Selected) != "" {
+			hint += "   Ctrl+Enter reveal"
+		}
+		if !item.Computed && !item.Document && filepath.IsAbs(item.Filepath) {
+			hint += "   Shift+Enter admin"
+		}
 	}
 	return layout.Inset{Top: unit.Dp(7), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		style := material.Label(l.theme, unit.Sp(10), hint)

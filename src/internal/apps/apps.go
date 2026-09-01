@@ -1,11 +1,15 @@
 package apps
 
 import (
+	"errors"
 	"log"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
+
+	"golang.org/x/sys/windows"
 	g "winfastnav/internal/globals"
 	"winfastnav/internal/recent"
 )
@@ -24,16 +28,10 @@ func SetupApps() {
 func FindAppResults(needle string) []g.Resource {
 	var results []g.Resource
 
-	needle = strings.ToLower(needle)
-
 	appListMu.RLock()
-	defer appListMu.RUnlock()
-	for _, app := range g.AppList {
-		if strings.Contains(strings.ToLower(app.Name), needle) || strings.Contains(strings.ToLower(app.Filepath), needle) {
-			results = append(results, app)
-		}
-	}
-	return limitResults(recent.Rank(results))
+	results = append(results, g.AppList...)
+	appListMu.RUnlock()
+	return limitResults(recent.MatchAndRank(results, needle))
 }
 
 func RecentApplications() []g.Resource {
@@ -60,6 +58,24 @@ func OpenProgram(execPath string) error {
 	}
 	err := cmd.Start()
 	if err == nil {
+		recent.Record(execPath)
+	}
+	return err
+}
+
+func RunProgramElevated(execPath string) error {
+	if !filepath.IsAbs(execPath) || !strings.EqualFold(filepath.Ext(execPath), ".exe") {
+		return errors.New("selected item cannot be run as administrator")
+	}
+	verb, err := windows.UTF16PtrFromString("runas")
+	if err != nil {
+		return err
+	}
+	path, err := windows.UTF16PtrFromString(execPath)
+	if err != nil {
+		return err
+	}
+	if err = windows.ShellExecute(0, verb, path, nil, nil, 1); err == nil {
 		recent.Record(execPath)
 	}
 	return err
