@@ -40,10 +40,16 @@ func main() {
 	settings.SetupSettings()
 	recent.Load()
 	apps.LoadCatalog()
+	utils.LoadCurrencyRates()
 	ui.SetupUI()
 	apps.SetCatalogChangedHandler(ui.RefreshResults)
 	go documents.SetupDocs()
 	go apps.MonitorCatalog()
+	go func() {
+		if utils.RefreshCurrencyRates() {
+			ui.RefreshResults()
+		}
+	}()
 	go listenHotkeys()
 	ui.Run()
 	setupTray()
