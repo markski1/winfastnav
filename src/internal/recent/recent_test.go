@@ -74,6 +74,23 @@ func TestLearnedSelectionReordersSimilarMatches(t *testing.T) {
 	}
 }
 
+func TestRankLimitKeepsRecentItemsAheadOfOrdinaryItems(t *testing.T) {
+	resetRankingState(t)
+	resources := []globals.Resource{
+		{Name: "First", Filepath: `C:\first`},
+		{Name: "Second", Filepath: `C:\second`},
+		{Name: "Recent", Filepath: `C:\recent`},
+	}
+	mu.Lock()
+	entries = []string{`C:\recent`}
+	mu.Unlock()
+
+	results := RankLimit(resources, 2)
+	if len(results) != 2 || results[0].Name != "Recent" || results[1].Name != "First" {
+		t.Fatalf("limited ranking = %#v", results)
+	}
+}
+
 func resetRankingState(t *testing.T) {
 	t.Helper()
 	mu.Lock()

@@ -33,6 +33,7 @@ import (
 	appicons "winfastnav/internal/icons"
 	"winfastnav/internal/presentation"
 	"winfastnav/internal/recent"
+	"winfastnav/internal/systemactions"
 	"winfastnav/internal/utils"
 	"winfastnav/internal/windowcontrol"
 )
@@ -46,7 +47,7 @@ type launcher struct {
 	ops                                           op.Ops
 	theme                                         *material.Theme
 	icons                                         *appicons.Cache
-	editor, settings                              widget.Editor
+	editor, settings, aliases                     widget.Editor
 	list                                          widget.List
 	results                                       [maxResults + 2]widget.Clickable
 	menu, back, help, settingsButton, about, quit widget.Clickable
@@ -58,6 +59,7 @@ type launcher struct {
 	settingsStatus                                string
 	centered                                      bool
 	refreshPending                                atomic.Bool
+	pendingAction                                 g.Resource
 }
 
 var active *launcher
@@ -76,6 +78,7 @@ func SetupUI() {
 	theme.TextSize = unit.Sp(12.35)
 	active = &launcher{controller: presentation.NewController(g.ModeSearchProgram), theme: theme, icons: appicons.NewCache(), list: widget.List{List: layout.List{Axis: layout.Vertical}}}
 	active.editor.SingleLine, active.editor.Submit = true, true
+	active.aliases.SingleLine = true
 	active.window.Option(app.Title(g.AppName), app.Size(unit.Dp(580), unit.Dp(460)), app.MinSize(unit.Dp(580), unit.Dp(460)), app.MaxSize(unit.Dp(580), unit.Dp(460)), app.Decorated(false), app.TopMost(true))
 	active.windowControl = windowcontrol.New(g.AppName)
 	active.controller.Post(presentation.Command{Kind: presentation.CommandShow})
@@ -97,6 +100,9 @@ func Run() {
 func ShowWindow() {
 	if active == nil {
 		return
+	}
+	if active.controller.Snapshot().Page == presentation.PageSettings {
+		core.UpdateAliasSetting(g.AliasString)
 	}
 	g.CurrentMode = g.ModeSearchProgram
 	active.clearItems()
@@ -140,6 +146,9 @@ func ShowAbout() {
 }
 func Quit() {
 	if active != nil {
+		if active.controller.Snapshot().Page == presentation.PageSettings {
+			core.UpdateAliasSetting(g.AliasString)
+		}
 		active.controller.Close()
 	}
 	systray.Quit()
@@ -223,6 +232,15 @@ func (l *launcher) update(gtx layout.Context) {
 
 func (l *launcher) key(gtx layout.Context, event key.Event) {
 	s := l.controller.Snapshot()
+	if s.Page == presentation.PageConfirmation {
+		switch event.Name {
+		case key.NameEscape:
+			l.launcher()
+		case key.NameReturn, key.NameEnter:
+			l.executeSystemAction(l.pendingAction)
+		}
+		return
+	}
 	if (event.Name == key.NameReturn || event.Name == key.NameEnter) && event.Modifiers.Contain(key.ModShift) {
 		l.runSelectedElevated()
 		return
@@ -422,6 +440,15 @@ func (l *launcher) open(index int) {
 	}
 	item := l.items[index]
 	l.mu.RUnlock()
+	if item.Command != nil {
+		if systemactions.RequiresConfirmation(item.Command.Action) {
+			l.pendingAction = item
+			l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageConfirmation})
+			return
+		}
+		l.executeSystemAction(item)
+		return
+	}
 	if item.Computed {
 		l.editor.SetText(item.Name)
 		l.query(item.Name)
@@ -450,7 +477,7 @@ func (l *launcher) block(index int) {
 	}
 	item := l.items[index]
 	l.mu.RUnlock()
-	if item.Computed || item.Document {
+	if item.Computed || item.Document || item.Command != nil {
 		return
 	}
 	apps.BlockApplication(item)
@@ -485,7 +512,7 @@ func (l *launcher) revealSelected() {
 
 func (l *launcher) copySelected(gtx layout.Context) {
 	item, ok := l.selectedItem()
-	if !ok {
+	if !ok || item.Command != nil {
 		return
 	}
 	value := item.Filepath
@@ -499,7 +526,7 @@ func (l *launcher) copySelected(gtx layout.Context) {
 
 func (l *launcher) runSelectedElevated() {
 	item, ok := l.selectedItem()
-	if !ok || item.Computed || item.Document {
+	if !ok || item.Computed || item.Document || item.Command != nil {
 		return
 	}
 	if err := apps.RunProgramElevated(item.Filepath); err != nil {
@@ -508,6 +535,25 @@ func (l *launcher) runSelectedElevated() {
 	}
 	recent.RecordSelection(l.editor.Text(), item.Filepath)
 	HideWindow()
+}
+
+func (l *launcher) executeSystemAction(item g.Resource) {
+	if item.Command == nil || item.Command.Action == "" {
+		return
+	}
+	query := l.controller.Snapshot().Query
+	l.pendingAction = g.Resource{}
+	HideWindow()
+	go func() {
+		if err := systemactions.Execute(item.Command.Action); err != nil {
+			log.Printf("system action %s failed: %v", item.Command.Action, err)
+			ShowWindow()
+			l.message("Could not run " + item.Name + ".")
+			return
+		}
+		recent.Record(item.Filepath)
+		recent.RecordSelection(query, item.Filepath)
+	}()
 }
 
 func (l *launcher) selectedItem() (g.Resource, bool) {
@@ -525,7 +571,11 @@ func (l *launcher) message(text string) {
 	l.controller.Post(presentation.Command{Kind: presentation.CommandSetMessage, Message: utils.WrapTextByWords(text, 64)})
 }
 func (l *launcher) launcher() {
+	if l.controller.Snapshot().Page == presentation.PageSettings {
+		core.UpdateAliasSetting(l.aliases.Text())
+	}
 	l.confirmClear = false
+	l.pendingAction = g.Resource{}
 	l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageLauncher})
 }
 
@@ -537,11 +587,13 @@ func (l *launcher) layout(gtx layout.Context) layout.Dimensions {
 		case presentation.PageMenu:
 			return l.menuPage(gtx)
 		case presentation.PageHelp:
-			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nENTER: Open\nCTRL + ENTER: Reveal in Explorer\nSHIFT + ENTER: Run as administrator\nCTRL + C: Copy selected result\nDELETE: Hide app\n\n:w Internet search\n:g Quick GPT\n:r Re-index\n:x Quit\n\nTry (2+3)^2, 20% of 80, 10 km to mi, or 100 USD to EUR.")
+			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nENTER: Open or run\nCTRL + ENTER: Reveal in Explorer\nSHIFT + ENTER: Run as administrator\nCTRL + C: Copy selected result\nDELETE: Hide app\n\n:w Internet search\n:g Quick GPT\n:r Re-index\n:x Quit\n\nDocuments: pdf report, type:docx, folder:work\nAliases: configure alias=application in Settings\n\nTry (2+3)^2, 20% of 80, 10 km to mi, or 100 USD to EUR.")
 		case presentation.PageSettings:
 			return l.settingsPage(gtx)
 		case presentation.PageAbout:
 			return l.textPage(gtx, "winfastnav", "Fast Windows navigation\n\nmarkski.ar\ngithub.com/markski1")
+		case presentation.PageConfirmation:
+			return l.confirmationPage(gtx)
 		default:
 			return l.launcherPage(gtx, s)
 		}
@@ -601,10 +653,14 @@ func (l *launcher) resultsPage(gtx layout.Context, s presentation.State) layout.
 func (l *launcher) resultRows() []resultRow {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	var calculated, applications, documentsRows []resultRow
+	var calculated, commandsRows, applications, documentsRows []resultRow
 	for resourceIndex, item := range l.items {
 		if item.Computed {
 			calculated = append(calculated, resultRow{title: item.Name, detail: "Calculated result / Enter to use", kind: "Result", resourceIndex: resourceIndex})
+			continue
+		}
+		if item.Command != nil {
+			commandsRows = append(commandsRows, resultRow{title: item.Name, detail: item.Command.Detail, kind: "Command", resourceIndex: resourceIndex})
 			continue
 		}
 		row := resultRow{title: item.Name, detail: filepath.Dir(item.Filepath), iconPath: item.Filepath, kind: "Application", resourceIndex: resourceIndex}
@@ -616,6 +672,10 @@ func (l *launcher) resultRows() []resultRow {
 		applications = append(applications, row)
 	}
 	rows := append([]resultRow(nil), calculated...)
+	if len(commandsRows) > 0 {
+		rows = append(rows, resultRow{title: "COMMANDS", section: true})
+		rows = append(rows, commandsRows...)
+	}
 	if len(applications) > 0 {
 		rows = append(rows, resultRow{title: "APPS", section: true})
 		rows = append(rows, applications...)
@@ -633,6 +693,7 @@ func (l *launcher) menuPage(gtx layout.Context) layout.Dimensions {
 	}
 	for l.settingsButton.Clicked(gtx) {
 		l.settings.SetText(g.SearchString)
+		l.aliases.SetText(g.AliasString)
 		l.startupEnabled = utils.IsInStartup()
 		l.settingsStatus = "Changes are saved automatically."
 		l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageSettings})
@@ -666,6 +727,17 @@ func (l *launcher) settingsPage(gtx layout.Context) layout.Dimensions {
 			l.settingsStatus = "Search URL saved."
 		}
 	}
+	for {
+		e, ok := l.aliases.Update(gtx)
+		if !ok {
+			break
+		}
+		if _, changed := e.(widget.ChangeEvent); changed {
+			g.AliasString = l.aliases.Text()
+			apps.SetAliases(g.AliasString)
+			l.settingsStatus = "Aliases will be saved when you leave Settings."
+		}
+	}
 	for l.startup.Clicked(gtx) {
 		if err := utils.AddToStartup(); err != nil {
 			l.settingsStatus = "Could not enable startup: " + err.Error()
@@ -692,6 +764,10 @@ func (l *launcher) settingsPage(gtx layout.Context) layout.Dimensions {
 	editor.TextSize = unit.Sp(13)
 	editor.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
 	editor.HintColor = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
+	aliasEditor := material.Editor(l.theme, &l.aliases, "vsc=Visual Studio Code; dc=Discord")
+	aliasEditor.TextSize = unit.Sp(13)
+	aliasEditor.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	aliasEditor.HintColor = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.heading(gtx, "Settings") }),
 		layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
@@ -701,6 +777,12 @@ func (l *launcher) settingsPage(gtx layout.Context) layout.Dimensions {
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.input(gtx, editor.Layout) }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.settingNote(gtx, l.settingsStatus) }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "APP ALIASES") }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return l.settingNote(gtx, "Separate aliases with semicolons: alias=application name")
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.input(gtx, aliasEditor.Layout) }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "STARTUP") }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -726,6 +808,35 @@ func (l *launcher) settingsPage(gtx layout.Context) layout.Dimensions {
 		}),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }),
+	)
+}
+
+func (l *launcher) confirmationPage(gtx layout.Context) layout.Dimensions {
+	for l.confirm.Clicked(gtx) {
+		l.executeSystemAction(l.pendingAction)
+	}
+	for l.cancel.Clicked(gtx) {
+		l.launcher()
+	}
+	title := l.pendingAction.Name
+	if title == "" {
+		l.launcher()
+		return layout.Dimensions{}
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.heading(gtx, "Confirm action") }),
+		layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return l.label(gtx, title+"? This action takes effect immediately.")
+		}),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.confirm, "Confirm") }),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.cancel, "Cancel") }),
+			)
+		}),
 	)
 }
 func (l *launcher) button(gtx layout.Context, c *widget.Clickable, text string) layout.Dimensions {
@@ -830,6 +941,9 @@ func (l *launcher) keyboardHint(gtx layout.Context, state presentation.State) la
 	hint := "↑ ↓ move   Enter open   Esc hide   Alt+Space summon"
 	if item, ok := l.selectedItem(); ok {
 		hint = "Enter open   Ctrl+C copy"
+		if item.Command != nil {
+			hint = "Enter run"
+		}
 		if item.Computed {
 			hint = "Enter use   Ctrl+C copy"
 		}

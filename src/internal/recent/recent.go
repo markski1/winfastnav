@@ -271,6 +271,9 @@ func Rank(resources []globals.Resource) []globals.Resource {
 		order[strings.ToLower(entry)] = index
 	}
 	mu.RUnlock()
+	if len(order) == 0 {
+		return resources
+	}
 
 	sort.SliceStable(resources, func(i, j int) bool {
 		left, leftRecent := order[strings.ToLower(resources[i].Filepath)]
@@ -287,6 +290,55 @@ func Rank(resources []globals.Resource) []globals.Resource {
 		}
 	})
 	return resources
+}
+
+func RankLimit(resources []globals.Resource, limit int) []globals.Resource {
+	if limit <= 0 || len(resources) <= limit {
+		return Rank(resources)
+	}
+	mu.RLock()
+	order := make(map[string]int, len(entries))
+	for index, entry := range entries {
+		order[strings.ToLower(entry)] = index
+	}
+	mu.RUnlock()
+	if len(order) == 0 {
+		return resources[:limit]
+	}
+
+	type prioritized struct {
+		resource globals.Resource
+		order    int
+	}
+	recentResources := make([]prioritized, 0, len(order))
+	ordinary := make([]globals.Resource, 0, limit)
+	for _, resource := range resources {
+		if index, ok := order[strings.ToLower(resource.Filepath)]; ok {
+			recentResources = append(recentResources, prioritized{resource: resource, order: index})
+		} else if len(ordinary) < limit {
+			ordinary = append(ordinary, resource)
+		}
+	}
+	sort.Slice(recentResources, func(i, j int) bool { return recentResources[i].order < recentResources[j].order })
+	result := make([]globals.Resource, 0, limit)
+	for _, item := range recentResources {
+		result = append(result, item.resource)
+		if len(result) == limit {
+			return result
+		}
+	}
+	remaining := limit - len(result)
+	if remaining > len(ordinary) {
+		remaining = len(ordinary)
+	}
+	return append(result, ordinary[:remaining]...)
+}
+
+func Paths() []string {
+	mu.RLock()
+	result := append([]string(nil), entries...)
+	mu.RUnlock()
+	return result
 }
 
 func Only(resources []globals.Resource) []globals.Resource {

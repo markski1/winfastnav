@@ -10,6 +10,7 @@ const (
 	PageHelp
 	PageSettings
 	PageAbout
+	PageConfirmation
 )
 
 type CommandKind uint8

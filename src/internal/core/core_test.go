@@ -33,3 +33,17 @@ func TestBareUnitConversionIsOfferedAsFirstResult(t *testing.T) {
 		t.Fatalf("first result = %#v, want a computed conversion", results)
 	}
 }
+
+func TestSystemCommandAppearsAsResult(t *testing.T) {
+	previousMode := globals.CurrentMode
+	globals.CurrentMode = globals.ModeSearchProgram
+	t.Cleanup(func() { globals.CurrentMode = previousMode })
+
+	results, message := HandleTextInput("restart")
+	if message != nil {
+		t.Fatalf("unexpected message: %q", *message)
+	}
+	if len(results) == 0 || results[0].Command == nil || results[0].Command.Action != "restart" {
+		t.Fatalf("first result = %#v, want restart command", results)
+	}
+}

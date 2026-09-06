@@ -9,8 +9,14 @@ type Resource struct {
 	Filepath   string
 	Computed   bool
 	Document   bool
-	SearchName string `json:"-"`
-	SearchPath string `json:"-"`
+	Command    *SystemCommand `json:"-"`
+	SearchName string         `json:"-"`
+	SearchPath string         `json:"-"`
+}
+
+type SystemCommand struct {
+	Action string
+	Detail string
 }
 
 const (
@@ -25,6 +31,7 @@ var (
 	AppList       []Resource
 	ExecBlocklist []string
 	SearchString  string
+	AliasString   string
 
 	FinishedCachingDocs = false
 

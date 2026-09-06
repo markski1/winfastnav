@@ -8,6 +8,7 @@ import (
 	"winfastnav/internal/apps"
 	"winfastnav/internal/globals"
 	"winfastnav/internal/settings"
+	"winfastnav/internal/systemactions"
 	"winfastnav/internal/utils"
 )
 
@@ -20,7 +21,7 @@ func HandleTextInput(query string) (retItems []globals.Resource, resultStr *stri
 	if len(query) == 0 {
 		switch globals.CurrentMode {
 		case globals.ModeSearchProgram:
-			return combineResults(apps.RecentApplications(), documents.RecentDocuments()), nil
+			return combineResults(nil, apps.RecentApplications(), documents.RecentDocuments()), nil
 		}
 		return nil, nil
 	}
@@ -40,9 +41,10 @@ func HandleTextInput(query string) (retItems []globals.Resource, resultStr *stri
 		return nil, &s
 
 	case globals.ModeSearchProgram:
+		systemResults := systemactions.Find(query)
 		appResults := apps.FindAppResults(query)
 		documentResults := documents.FilterDocumentsByName(query)
-		return withCalculation(combineResults(appResults, documentResults), calculation, calculated), nil
+		return withCalculation(combineResults(systemResults, appResults, documentResults), calculation, calculated), nil
 
 	case globals.ModeAskGPT:
 		s := fmt.Sprintf("Quick GPT: %s", query)
@@ -84,10 +86,15 @@ func withCalculation(resources []globals.Resource, calculation string, calculate
 	return append(result, resources...)
 }
 
-func combineResults(appResults, documentResults []globals.Resource) []globals.Resource {
-	limit := min(len(appResults), maxAppResults)
-	combined := append([]globals.Resource(nil), appResults[:limit]...)
+func combineResults(systemResults, appResults, documentResults []globals.Resource) []globals.Resource {
+	limit := min(len(systemResults), maxCombinedResults)
+	combined := append([]globals.Resource(nil), systemResults[:limit]...)
 	remaining := maxCombinedResults - len(combined)
+	if remaining > 0 {
+		limit = min(len(appResults), min(maxAppResults, remaining))
+		combined = append(combined, appResults[:limit]...)
+	}
+	remaining = maxCombinedResults - len(combined)
 	if remaining > 0 {
 		limit = min(len(documentResults), remaining)
 		for _, document := range documentResults[:limit] {
@@ -102,4 +109,10 @@ func combineResults(appResults, documentResults []globals.Resource) []globals.Re
 func UpdateSearchSetting(s string) {
 	globals.SearchString = s
 	_ = settings.SetSetting("searchstring", s)
+}
+
+func UpdateAliasSetting(value string) {
+	globals.AliasString = value
+	apps.SetAliases(value)
+	_ = settings.SetSetting("aliases", value)
 }

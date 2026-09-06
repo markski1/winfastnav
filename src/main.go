@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"winfastnav/internal/apps"
 	"winfastnav/internal/documents"
+	"winfastnav/internal/globals"
 	"winfastnav/internal/hotkey"
 	"winfastnav/internal/recent"
 	"winfastnav/internal/settings"
@@ -39,6 +40,7 @@ func main() {
 
 	settings.SetupSettings()
 	recent.Load()
+	apps.SetAliases(globals.AliasString)
 	apps.LoadCatalog()
 	utils.LoadCurrencyRates()
 	ui.SetupUI()

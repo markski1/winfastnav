@@ -46,6 +46,8 @@ func SetupSettings() {
 		}
 		g.SearchString = "https://duckduckgo.com/?q=%s"
 	}
+
+	g.AliasString, _ = GetSetting("aliases")
 }
 
 func getSettingsFilePath() (string, error) {
