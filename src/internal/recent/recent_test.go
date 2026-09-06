@@ -1,6 +1,8 @@
 package recent
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"winfastnav/internal/globals"
@@ -24,6 +26,22 @@ func TestMatchAndRankByTextQuality(t *testing.T) {
 		if results[index].Name != name {
 			t.Fatalf("result %d = %q, want %q", index, results[index].Name, name)
 		}
+	}
+}
+
+func BenchmarkMatchAndRank500(b *testing.B) {
+	resources := make([]globals.Resource, 500)
+	for index := range resources {
+		resources[index] = globals.Resource{
+			Name:     fmt.Sprintf("Application %03d", index),
+			Filepath: fmt.Sprintf(`C:\Apps\app%03d.exe`, index),
+		}
+		resources[index].SearchName = strings.ToLower(resources[index].Name)
+		resources[index].SearchPath = strings.ToLower(resources[index].Filepath)
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		_ = MatchAndRankLimit(resources, "app", 30)
 	}
 }
 

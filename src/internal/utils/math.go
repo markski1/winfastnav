@@ -9,6 +9,7 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"unicode"
@@ -46,6 +47,9 @@ func HasUnit(s string) bool {
 }
 
 func ConvertUnit(s string) string {
+	if result := convertDirectedUnit(s); result != "" {
+		return result
+	}
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = strings.ReplaceAll(s, ",", "")
 	// allow for spaces by just ignoring them
@@ -53,6 +57,9 @@ func ConvertUnit(s string) string {
 
 	// grab the number
 	i := 0
+	if i < len(s) && (s[i] == '-' || s[i] == '+') {
+		i++
+	}
 	for i < len(s) && (s[i] == '.' || (s[i] >= '0' && s[i] <= '9')) {
 		i++
 	}
@@ -62,7 +69,7 @@ func ConvertUnit(s string) string {
 	}
 	numStr, unit := s[:i], s[i:]
 	val, err := strconv.ParseFloat(numStr, 64)
-	if err != nil || val < 0 {
+	if err != nil {
 		return ""
 	}
 
@@ -220,14 +227,127 @@ func ConvertUnit(s string) string {
 	return strings.Join(out, "\n")
 }
 
+type unitDefinition struct {
+	group   string
+	factor  float64
+	display string
+}
+
+var directedUnits = map[string]unitDefinition{
+	"kg": {"mass", 1, "kg"}, "kilogram": {"mass", 1, "kg"}, "kilograms": {"mass", 1, "kg"},
+	"g": {"mass", 0.001, "g"}, "gram": {"mass", 0.001, "g"}, "grams": {"mass", 0.001, "g"},
+	"lb": {"mass", 0.45359237, "lb"}, "lbs": {"mass", 0.45359237, "lb"}, "pound": {"mass", 0.45359237, "lb"}, "pounds": {"mass", 0.45359237, "lb"},
+	"oz": {"mass", 0.028349523125, "oz"}, "ounce": {"mass", 0.028349523125, "oz"}, "ounces": {"mass", 0.028349523125, "oz"},
+	"m": {"length", 1, "m"}, "meter": {"length", 1, "m"}, "meters": {"length", 1, "m"}, "metre": {"length", 1, "m"}, "metres": {"length", 1, "m"},
+	"km": {"length", 1000, "km"}, "kilometer": {"length", 1000, "km"}, "kilometers": {"length", 1000, "km"},
+	"cm": {"length", 0.01, "cm"}, "centimeter": {"length", 0.01, "cm"}, "centimeters": {"length", 0.01, "cm"},
+	"mm": {"length", 0.001, "mm"}, "millimeter": {"length", 0.001, "mm"}, "millimeters": {"length", 0.001, "mm"},
+	"in": {"length", 0.0254, "in"}, "inch": {"length", 0.0254, "in"}, "inches": {"length", 0.0254, "in"},
+	"ft": {"length", 0.3048, "ft"}, "foot": {"length", 0.3048, "ft"}, "feet": {"length", 0.3048, "ft"},
+	"yd": {"length", 0.9144, "yd"}, "yard": {"length", 0.9144, "yd"}, "yards": {"length", 0.9144, "yd"},
+	"mi": {"length", 1609.344, "mi"}, "mile": {"length", 1609.344, "mi"}, "miles": {"length", 1609.344, "mi"},
+	"m/s": {"speed", 1, "m/s"}, "mps": {"speed", 1, "m/s"},
+	"km/h": {"speed", 1 / 3.6, "km/h"}, "kmh": {"speed", 1 / 3.6, "km/h"}, "kph": {"speed", 1 / 3.6, "km/h"},
+	"mph": {"speed", 0.44704, "mph"}, "ft/s": {"speed", 0.3048, "ft/s"}, "fps": {"speed", 0.3048, "ft/s"},
+	"knot": {"speed", 0.514444444444, "kn"}, "knots": {"speed", 0.514444444444, "kn"}, "kn": {"speed", 0.514444444444, "kn"},
+	"l": {"volume", 1, "L"}, "liter": {"volume", 1, "L"}, "liters": {"volume", 1, "L"}, "litre": {"volume", 1, "L"}, "litres": {"volume", 1, "L"},
+	"ml": {"volume", 0.001, "mL"}, "gallon": {"volume", 3.785411784, "gal"}, "gallons": {"volume", 3.785411784, "gal"}, "gal": {"volume", 3.785411784, "gal"},
+	"qt": {"volume", 0.946352946, "qt"}, "quart": {"volume", 0.946352946, "qt"}, "quarts": {"volume", 0.946352946, "qt"},
+	"b": {"data", 1, "B"}, "byte": {"data", 1, "B"}, "bytes": {"data", 1, "B"},
+	"kb": {"data", 1000, "KB"}, "mb": {"data", 1e6, "MB"}, "gb": {"data", 1e9, "GB"}, "tb": {"data", 1e12, "TB"},
+	"kib": {"data", 1024, "KiB"}, "mib": {"data", 1048576, "MiB"}, "gib": {"data", 1073741824, "GiB"}, "tib": {"data", 1099511627776, "TiB"},
+	"ms": {"duration", 0.001, "ms"}, "second": {"duration", 1, "s"}, "seconds": {"duration", 1, "s"}, "sec": {"duration", 1, "s"}, "s": {"duration", 1, "s"},
+	"minute": {"duration", 60, "min"}, "minutes": {"duration", 60, "min"}, "min": {"duration", 60, "min"},
+	"hour": {"duration", 3600, "h"}, "hours": {"duration", 3600, "h"}, "hr": {"duration", 3600, "h"}, "h": {"duration", 3600, "h"},
+	"day": {"duration", 86400, "days"}, "days": {"duration", 86400, "days"},
+	"c": {"temperature", 1, "°C"}, "celsius": {"temperature", 1, "°C"},
+	"f": {"temperature", 1, "°F"}, "fahrenheit": {"temperature", 1, "°F"},
+	"k": {"temperature", 1, "K"}, "kelvin": {"temperature", 1, "K"},
+}
+
+func convertDirectedUnit(input string) string {
+	normalized := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(input)), " "))
+	separator := " to "
+	index := strings.LastIndex(normalized, separator)
+	if index < 0 {
+		separator = " in "
+		index = strings.LastIndex(normalized, separator)
+	}
+	if index < 0 {
+		return ""
+	}
+	value, sourceName, ok := parseQuantity(normalized[:index])
+	if !ok {
+		return ""
+	}
+	targetName := strings.TrimSpace(normalized[index+len(separator):])
+	source, sourceOK := directedUnits[sourceName]
+	target, targetOK := directedUnits[targetName]
+	if !sourceOK || !targetOK || source.group != target.group {
+		return ""
+	}
+	if source.group == "temperature" {
+		converted, ok := convertTemperature(value, sourceName, targetName)
+		if !ok {
+			return ""
+		}
+		return formatNumber(converted) + " " + target.display
+	}
+	return formatNumber(value*source.factor/target.factor) + " " + target.display
+}
+
+func parseQuantity(input string) (float64, string, bool) {
+	input = strings.TrimSpace(input)
+	index := 0
+	if index < len(input) && (input[index] == '-' || input[index] == '+') {
+		index++
+	}
+	for index < len(input) && ((input[index] >= '0' && input[index] <= '9') || input[index] == '.' || input[index] == ',') {
+		index++
+	}
+	if index == 0 || index == len(input) {
+		return 0, "", false
+	}
+	value, ok := parseNumber(input[:index])
+	unit := strings.TrimSpace(input[index:])
+	return value, unit, ok && unit != ""
+}
+
+func convertTemperature(value float64, source, target string) (float64, bool) {
+	source = directedUnits[source].display
+	target = directedUnits[target].display
+	celsius := value
+	switch source {
+	case "°F":
+		celsius = (value - 32) * 5 / 9
+	case "K":
+		celsius = value - 273.15
+	case "°C":
+	default:
+		return 0, false
+	}
+	switch target {
+	case "°C":
+		return celsius, true
+	case "°F":
+		return celsius*9/5 + 32, true
+	case "K":
+		return celsius + 273.15, true
+	default:
+		return 0, false
+	}
+}
+
 func IsMath(s string) bool {
 	if len(s) == 0 {
 		return false
 	}
 	hasRune := false
 	for _, r := range s {
-		if strings.ContainsRune("+-/*,. ", r) {
-			hasRune = true
+		if strings.ContainsRune("+-/*^()., ", r) {
+			if strings.ContainsRune("+-/*^()", r) {
+				hasRune = true
+			}
 			continue
 		}
 		if !unicode.IsDigit(r) {
@@ -239,28 +359,136 @@ func IsMath(s string) bool {
 
 func EvalMath(expr string) (string, error) {
 	expr = strings.ReplaceAll(expr, ",", ".")
-	tokens, err := tokenize(expr)
-	if err != nil {
+	parser := expressionParser{input: expr}
+	result, err := parser.expression()
+	parser.skipSpaces()
+	if err != nil || parser.position != len(parser.input) || math.IsInf(result, 0) || math.IsNaN(result) {
+		if err == nil {
+			err = errors.New("invalid expression")
+		}
 		return "0", err
 	}
+	return formatNumber(result), nil
+}
 
-	// Infix and Postfix notation is pretty cool and worth reading about.
-	// Basically: The way in which humans write operations (Infix: operand, operator, operand, operator [repeat for as many operands])
-	// is quite hard to compute compared to Postfix ([]operands, operator, []operands, operator)
-	// So you just put the operators in proper order and go through their operands. Neat!
-	postfix, err := infixToPostfix(tokens)
-	if err != nil {
-		return "0", err
+type expressionParser struct {
+	input    string
+	position int
+}
+
+func (p *expressionParser) expression() (float64, error) {
+	left, err := p.term()
+	for err == nil {
+		p.skipSpaces()
+		if p.position >= len(p.input) || (p.input[p.position] != '+' && p.input[p.position] != '-') {
+			break
+		}
+		operator := p.input[p.position]
+		p.position++
+		var right float64
+		right, err = p.term()
+		if operator == '+' {
+			left += right
+		} else {
+			left -= right
+		}
 	}
+	return left, err
+}
 
-	result, err := evalPostfix(postfix)
-
-	if err != nil {
-		return "0", err
+func (p *expressionParser) term() (float64, error) {
+	left, err := p.unary()
+	for err == nil {
+		p.skipSpaces()
+		if p.position >= len(p.input) || (p.input[p.position] != '*' && p.input[p.position] != '/') {
+			break
+		}
+		operator := p.input[p.position]
+		p.position++
+		var right float64
+		right, err = p.unary()
+		if operator == '*' {
+			left *= right
+		} else if right == 0 {
+			return 0, errors.New("division by zero")
+		} else {
+			left /= right
+		}
 	}
+	return left, err
+}
 
-	strResult := fmt.Sprintf("%.2f", result)
-	return strings.ReplaceAll(strResult, ".00", ""), nil
+func (p *expressionParser) power() (float64, error) {
+	left, err := p.primary()
+	if err != nil {
+		return 0, err
+	}
+	p.skipSpaces()
+	if p.position < len(p.input) && p.input[p.position] == '^' {
+		p.position++
+		right, err := p.unary()
+		if err != nil {
+			return 0, err
+		}
+		left = math.Pow(left, right)
+	}
+	return left, nil
+}
+
+func (p *expressionParser) unary() (float64, error) {
+	p.skipSpaces()
+	if p.position < len(p.input) && (p.input[p.position] == '+' || p.input[p.position] == '-') {
+		operator := p.input[p.position]
+		p.position++
+		value, err := p.unary()
+		if operator == '-' {
+			value = -value
+		}
+		return value, err
+	}
+	return p.power()
+}
+
+func (p *expressionParser) primary() (float64, error) {
+	p.skipSpaces()
+	if p.position >= len(p.input) {
+		return 0, errors.New("missing operand")
+	}
+	if p.input[p.position] == '(' {
+		p.position++
+		value, err := p.expression()
+		p.skipSpaces()
+		if err != nil || p.position >= len(p.input) || p.input[p.position] != ')' {
+			return 0, errors.New("unclosed parenthesis")
+		}
+		p.position++
+		return value, nil
+	}
+	start := p.position
+	dot := false
+	for p.position < len(p.input) {
+		character := p.input[p.position]
+		if character >= '0' && character <= '9' {
+			p.position++
+			continue
+		}
+		if character == '.' && !dot {
+			dot = true
+			p.position++
+			continue
+		}
+		break
+	}
+	if start == p.position {
+		return 0, errors.New("missing number")
+	}
+	return strconv.ParseFloat(p.input[start:p.position], 64)
+}
+
+func (p *expressionParser) skipSpaces() {
+	for p.position < len(p.input) && unicode.IsSpace(rune(p.input[p.position])) {
+		p.position++
+	}
 }
 
 func tokenize(expr string) ([]string, error) {

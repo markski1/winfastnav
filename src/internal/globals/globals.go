@@ -5,10 +5,12 @@ import (
 )
 
 type Resource struct {
-	Name     string
-	Filepath string
-	Computed bool
-	Document bool
+	Name       string
+	Filepath   string
+	Computed   bool
+	Document   bool
+	SearchName string `json:"-"`
+	SearchPath string `json:"-"`
 }
 
 const (

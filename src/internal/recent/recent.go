@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 	"winfastnav/internal/globals"
 	"winfastnav/internal/settings"
 )
@@ -121,9 +122,21 @@ func RecordSelection(query, path string) {
 }
 
 func MatchAndRank(resources []globals.Resource, query string) []globals.Resource {
+	return matchAndRank(resources, query, 0)
+}
+
+func MatchAndRankLimit(resources []globals.Resource, query string, limit int) []globals.Resource {
+	return matchAndRank(resources, query, limit)
+}
+
+func matchAndRank(resources []globals.Resource, query string, limit int) []globals.Resource {
 	query = normalizeQuery(query)
 	if query == "" {
-		return Rank(resources)
+		result := Rank(resources)
+		if limit > 0 && len(result) > limit {
+			result = result[:limit]
+		}
+		return result
 	}
 
 	mu.RLock()
@@ -153,7 +166,10 @@ func MatchAndRank(resources []globals.Resource, query string) []globals.Resource
 		if !matched {
 			continue
 		}
-		path := strings.ToLower(resource.Filepath)
+		path := resource.SearchPath
+		if path == "" {
+			path = strings.ToLower(resource.Filepath)
+		}
 		if count := selectionCounts[path]; count > 0 {
 			score += 6000 + min(count, 20)*100
 		}
@@ -170,18 +186,36 @@ func MatchAndRank(resources []globals.Resource, query string) []globals.Resource
 		if rankedResources[i].score != rankedResources[j].score {
 			return rankedResources[i].score > rankedResources[j].score
 		}
-		return strings.ToLower(rankedResources[i].resource.Name) < strings.ToLower(rankedResources[j].resource.Name)
+		left := rankedResources[i].resource.SearchName
+		if left == "" {
+			left = strings.ToLower(rankedResources[i].resource.Name)
+		}
+		right := rankedResources[j].resource.SearchName
+		if right == "" {
+			right = strings.ToLower(rankedResources[j].resource.Name)
+		}
+		return left < right
 	})
-	result := make([]globals.Resource, len(rankedResources))
-	for index, item := range rankedResources {
+	resultCount := len(rankedResources)
+	if limit > 0 && resultCount > limit {
+		resultCount = limit
+	}
+	result := make([]globals.Resource, resultCount)
+	for index, item := range rankedResources[:resultCount] {
 		result[index] = item.resource
 	}
 	return result
 }
 
 func matchScore(resource globals.Resource, query string) (int, bool) {
-	name := strings.ToLower(strings.TrimSpace(resource.Name))
-	path := strings.ToLower(resource.Filepath)
+	name := resource.SearchName
+	if name == "" {
+		name = strings.ToLower(strings.TrimSpace(resource.Name))
+	}
+	path := resource.SearchPath
+	if path == "" {
+		path = strings.ToLower(resource.Filepath)
+	}
 	switch {
 	case name == query:
 		return 100000, true
@@ -201,25 +235,29 @@ func matchScore(resource globals.Resource, query string) (int, bool) {
 }
 
 func hasWordPrefix(name, query string) bool {
-	for _, word := range strings.FieldsFunc(name, func(r rune) bool {
-		return r == ' ' || r == '-' || r == '_' || r == '.'
-	}) {
-		if strings.HasPrefix(word, query) {
+	wordStart := true
+	for index := 0; index < len(name); index++ {
+		if wordStart && strings.HasPrefix(name[index:], query) {
 			return true
 		}
+		wordStart = name[index] == ' ' || name[index] == '-' || name[index] == '_' || name[index] == '.'
 	}
 	return false
 }
 
 func fuzzyMatch(name, query string) bool {
-	queryRunes := []rune(query)
-	matched := 0
-	for _, candidate := range []rune(name) {
-		if matched < len(queryRunes) && candidate == queryRunes[matched] {
-			matched++
+	queryOffset := 0
+	wanted, size := utf8.DecodeRuneInString(query)
+	for _, candidate := range name {
+		if candidate == wanted {
+			queryOffset += size
+			if queryOffset == len(query) {
+				return true
+			}
+			wanted, size = utf8.DecodeRuneInString(query[queryOffset:])
 		}
 	}
-	return matched == len(queryRunes)
+	return false
 }
 
 func normalizeQuery(query string) string {

@@ -356,12 +356,7 @@ func oleStringProperty(item *ole.IDispatch, name string) string {
 
 // Search for programs by grabbing .lnk's off the start menu
 func scanStartMenu(currentAppList []g.Resource) []g.Resource {
-	dirs := []string{
-		filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
-		filepath.Join(os.Getenv("PROGRAMDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
-	}
-
-	for _, base := range dirs {
+	for _, base := range startMenuDirectories() {
 		err := filepath.WalkDir(base, func(p string, de fs.DirEntry, err error) error {
 			if err != nil || de.IsDir() || !strings.HasSuffix(strings.ToLower(p), ".lnk") {
 				return nil
@@ -388,6 +383,13 @@ func scanStartMenu(currentAppList []g.Resource) []g.Resource {
 		}
 	}
 	return currentAppList
+}
+
+func startMenuDirectories() []string {
+	return []string{
+		filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
+		filepath.Join(os.Getenv("PROGRAMDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
+	}
 }
 
 func hasApplication(apps []g.Resource, name, path string) bool {

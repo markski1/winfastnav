@@ -11,6 +11,7 @@ import (
 	"winfastnav/internal/hotkey"
 	"winfastnav/internal/recent"
 	"winfastnav/internal/settings"
+	"winfastnav/internal/utils"
 	"winfastnav/ui"
 )
 
@@ -38,9 +39,11 @@ func main() {
 
 	settings.SetupSettings()
 	recent.Load()
+	apps.LoadCatalog()
 	ui.SetupUI()
+	apps.SetCatalogChangedHandler(ui.RefreshResults)
 	go documents.SetupDocs()
-	go apps.SetupApps()
+	go apps.MonitorCatalog()
 	go listenHotkeys()
 	ui.Run()
 	setupTray()

@@ -9,8 +9,8 @@ import (
 
 func UnblockAllApplications() {
 	appListMu.Lock()
-	defer appListMu.Unlock()
 	g.ExecBlocklist = []string{}
+	appListMu.Unlock()
 
 	jsonData, err := json.Marshal(g.ExecBlocklist)
 	if err != nil {
@@ -23,7 +23,7 @@ func UnblockAllApplications() {
 		return
 	}
 
-	g.AppList = GetInstalledApps()
+	go SetupApps()
 }
 
 func BlockApplication(application g.Resource) {

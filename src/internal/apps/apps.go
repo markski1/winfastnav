@@ -2,7 +2,6 @@ package apps
 
 import (
 	"errors"
-	"log"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -17,21 +16,16 @@ import (
 var appListMu sync.RWMutex
 
 func SetupApps() {
-	log.Printf("Indexing Windows apps")
-	appList := GetInstalledApps()
-	appListMu.Lock()
-	g.AppList = appList
-	appListMu.Unlock()
-	log.Printf("Windows apps indexed")
+	refreshCatalog(applicationSourcesFingerprint())
 }
 
 func FindAppResults(needle string) []g.Resource {
 	var results []g.Resource
 
 	appListMu.RLock()
-	results = append(results, g.AppList...)
+	results = recent.MatchAndRankLimit(g.AppList, needle, 30)
 	appListMu.RUnlock()
-	return limitResults(recent.MatchAndRank(results, needle))
+	return results
 }
 
 func RecentApplications() []g.Resource {

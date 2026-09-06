@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"gioui.org/app"
 	"gioui.org/io/clipboard"
@@ -56,6 +57,7 @@ type launcher struct {
 	startupEnabled                                bool
 	settingsStatus                                string
 	centered                                      bool
+	refreshPending                                atomic.Bool
 }
 
 var active *launcher
@@ -123,6 +125,14 @@ func HideWindow() {
 	}()
 }
 
+func RefreshResults() {
+	if active == nil {
+		return
+	}
+	active.refreshPending.Store(true)
+	active.window.Invalidate()
+}
+
 func ShowAbout() {
 	if active != nil {
 		active.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageAbout})
@@ -159,6 +169,12 @@ func (l *launcher) run() error {
 }
 
 func (l *launcher) update(gtx layout.Context) {
+	if l.refreshPending.Swap(false) {
+		state := l.controller.Snapshot()
+		if state.Mode == g.ModeSearchProgram && state.Page == presentation.PageLauncher {
+			l.query(state.Query)
+		}
+	}
 	state := l.controller.Snapshot()
 	if l.editor.Text() != state.Query {
 		l.editor.SetText(state.Query)
@@ -521,7 +537,7 @@ func (l *launcher) layout(gtx layout.Context) layout.Dimensions {
 		case presentation.PageMenu:
 			return l.menuPage(gtx)
 		case presentation.PageHelp:
-			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nENTER: Open\nCTRL + ENTER: Reveal in Explorer\nSHIFT + ENTER: Run as administrator\nCTRL + C: Copy selected result\nDELETE: Hide app\n\n:w Internet search\n:g Quick GPT\n:r Re-index\n:x Quit\n\nType 2+2 or 20in for calculations and conversions.")
+			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nENTER: Open\nCTRL + ENTER: Reveal in Explorer\nSHIFT + ENTER: Run as administrator\nCTRL + C: Copy selected result\nDELETE: Hide app\n\n:w Internet search\n:g Quick GPT\n:r Re-index\n:x Quit\n\nTry (2+3)^2, 20% of 80, 10 km to mi, or 100 USD to EUR.")
 		case presentation.PageSettings:
 			return l.settingsPage(gtx)
 		case presentation.PageAbout:

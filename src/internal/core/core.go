@@ -58,6 +58,9 @@ func calculate(query string) (string, bool) {
 	if expression == "" {
 		return "", false
 	}
+	if result, ok := utils.InstantAnswer(expression); ok {
+		return result, true
+	}
 	if utils.IsMath(expression) {
 		result, err := utils.EvalMath(strings.ReplaceAll(expression, " ", ""))
 		return result, err == nil
