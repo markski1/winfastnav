@@ -121,10 +121,6 @@ func RecordSelection(query, path string) {
 	}
 }
 
-func MatchAndRank(resources []globals.Resource, query string) []globals.Resource {
-	return matchAndRank(resources, query, 0)
-}
-
 func MatchAndRankLimit(resources []globals.Resource, query string, limit int) []globals.Resource {
 	return matchAndRank(resources, query, limit)
 }
@@ -132,7 +128,7 @@ func MatchAndRankLimit(resources []globals.Resource, query string, limit int) []
 func matchAndRank(resources []globals.Resource, query string, limit int) []globals.Resource {
 	query = normalizeQuery(query)
 	if query == "" {
-		result := Rank(resources)
+		result := rank(resources)
 		if limit > 0 && len(result) > limit {
 			result = result[:limit]
 		}
@@ -144,17 +140,12 @@ func matchAndRank(resources []globals.Resource, query string, limit int) []globa
 	for index, entry := range entries {
 		recency[strings.ToLower(entry)] = index
 	}
-	usageSnapshot := make(map[string]int, len(usage))
-	for path, count := range usage {
-		usageSnapshot[path] = count
-	}
 	selectionCounts := make(map[string]int)
 	for _, item := range selections {
 		if item.Query == query {
 			selectionCounts[strings.ToLower(item.Path)] = item.Count
 		}
 	}
-	mu.RUnlock()
 
 	type ranked struct {
 		resource globals.Resource
@@ -173,7 +164,7 @@ func matchAndRank(resources []globals.Resource, query string, limit int) []globa
 		if count := selectionCounts[path]; count > 0 {
 			score += 6000 + min(count, 20)*100
 		}
-		if count := usageSnapshot[path]; count > 0 {
+		if count := usage[path]; count > 0 {
 			score += min(count, 50) * 20
 		}
 		if index, ok := recency[path]; ok {
@@ -181,6 +172,7 @@ func matchAndRank(resources []globals.Resource, query string, limit int) []globa
 		}
 		rankedResources = append(rankedResources, ranked{resource: resource, score: score})
 	}
+	mu.RUnlock()
 
 	sort.SliceStable(rankedResources, func(i, j int) bool {
 		if rankedResources[i].score != rankedResources[j].score {
@@ -264,7 +256,7 @@ func normalizeQuery(query string) string {
 	return strings.ToLower(strings.Join(strings.Fields(query), " "))
 }
 
-func Rank(resources []globals.Resource) []globals.Resource {
+func rank(resources []globals.Resource) []globals.Resource {
 	mu.RLock()
 	order := make(map[string]int, len(entries))
 	for index, entry := range entries {
@@ -292,48 +284,6 @@ func Rank(resources []globals.Resource) []globals.Resource {
 	return resources
 }
 
-func RankLimit(resources []globals.Resource, limit int) []globals.Resource {
-	if limit <= 0 || len(resources) <= limit {
-		return Rank(resources)
-	}
-	mu.RLock()
-	order := make(map[string]int, len(entries))
-	for index, entry := range entries {
-		order[strings.ToLower(entry)] = index
-	}
-	mu.RUnlock()
-	if len(order) == 0 {
-		return resources[:limit]
-	}
-
-	type prioritized struct {
-		resource globals.Resource
-		order    int
-	}
-	recentResources := make([]prioritized, 0, len(order))
-	ordinary := make([]globals.Resource, 0, limit)
-	for _, resource := range resources {
-		if index, ok := order[strings.ToLower(resource.Filepath)]; ok {
-			recentResources = append(recentResources, prioritized{resource: resource, order: index})
-		} else if len(ordinary) < limit {
-			ordinary = append(ordinary, resource)
-		}
-	}
-	sort.Slice(recentResources, func(i, j int) bool { return recentResources[i].order < recentResources[j].order })
-	result := make([]globals.Resource, 0, limit)
-	for _, item := range recentResources {
-		result = append(result, item.resource)
-		if len(result) == limit {
-			return result
-		}
-	}
-	remaining := limit - len(result)
-	if remaining > len(ordinary) {
-		remaining = len(ordinary)
-	}
-	return append(result, ordinary[:remaining]...)
-}
-
 func Paths() []string {
 	mu.RLock()
 	result := append([]string(nil), entries...)
@@ -355,5 +305,5 @@ func Only(resources []globals.Resource) []globals.Resource {
 			recent = append(recent, resource)
 		}
 	}
-	return Rank(recent)
+	return rank(recent)
 }

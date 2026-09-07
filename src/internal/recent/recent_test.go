@@ -17,7 +17,7 @@ func TestMatchAndRankByTextQuality(t *testing.T) {
 		{Name: "Command Editor", Filepath: `C:\apps\word.exe`},
 	}
 
-	results := MatchAndRank(resources, "code")
+	results := matchAndRank(resources, "code", 0)
 	if len(results) != 4 {
 		t.Fatalf("got %d results, want 4", len(results))
 	}
@@ -52,7 +52,7 @@ func TestMatchAndRankSupportsFuzzyQueries(t *testing.T) {
 		{Name: "Notepad", Filepath: `C:\apps\notepad.exe`},
 	}
 
-	results := MatchAndRank(resources, "vsc")
+	results := matchAndRank(resources, "vsc", 0)
 	if len(results) != 1 || results[0].Name != "Visual Studio Code" {
 		t.Fatalf("unexpected fuzzy results: %#v", results)
 	}
@@ -68,26 +68,9 @@ func TestLearnedSelectionReordersSimilarMatches(t *testing.T) {
 	selections = []selection{{Query: "al", Path: `c:\apps\alpine.exe`, Count: 2}}
 	mu.Unlock()
 
-	results := MatchAndRank(resources, "al")
+	results := matchAndRank(resources, "al", 0)
 	if len(results) != 2 || results[0].Name != "Alpine" {
 		t.Fatalf("learned result was not promoted: %#v", results)
-	}
-}
-
-func TestRankLimitKeepsRecentItemsAheadOfOrdinaryItems(t *testing.T) {
-	resetRankingState(t)
-	resources := []globals.Resource{
-		{Name: "First", Filepath: `C:\first`},
-		{Name: "Second", Filepath: `C:\second`},
-		{Name: "Recent", Filepath: `C:\recent`},
-	}
-	mu.Lock()
-	entries = []string{`C:\recent`}
-	mu.Unlock()
-
-	results := RankLimit(resources, 2)
-	if len(results) != 2 || results[0].Name != "Recent" || results[1].Name != "First" {
-		t.Fatalf("limited ranking = %#v", results)
 	}
 }
 

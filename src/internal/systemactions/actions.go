@@ -53,7 +53,7 @@ func Find(query string) []g.Resource {
 			matches = append(matches, item)
 		}
 	}
-	matches = recent.Rank(matches)
+	matches = recent.MatchAndRankLimit(matches, query, 6)
 	if len(matches) > 6 {
 		matches = matches[:6]
 	}

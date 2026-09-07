@@ -33,8 +33,6 @@ var (
 	SearchString  string
 	AliasString   string
 
-	FinishedCachingDocs = false
-
 	CurrentMode int = ModeSearchProgram
 
 	//go:embed assets/icon.ico

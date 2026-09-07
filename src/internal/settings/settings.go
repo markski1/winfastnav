@@ -7,46 +7,38 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
+
 	g "winfastnav/internal/globals"
 )
 
 type Settings map[string]string
 
+var (
+	settingsMu sync.Mutex
+	settings   Settings
+)
+
 func SetupSettings() {
-	unparsedList, err := GetSetting("blocklist")
-	if err != nil || len(unparsedList) == 0 {
-		// initialize with empty list string
-		err = SetSetting("blocklist", "[]")
-		if err != nil {
-			log.Printf("Error setting blocklist: %v", err)
-			return
-		}
-		unparsedList = "[]"
-	}
-
 	var blocklist []string
-	err = json.Unmarshal([]byte(unparsedList), &blocklist)
-	if err != nil {
-		log.Printf("Error parsing blocklist: %v", err)
-		blocklist = []string{}
-		if err = SetSetting("blocklist", "[]"); err != nil {
-			log.Printf("Error resetting blocklist: %v", err)
+	stored, _ := GetSetting("blocklist")
+	if stored != "" {
+		if err := json.Unmarshal([]byte(stored), &blocklist); err != nil {
+			log.Printf("Error parsing blocklist: %v", err)
+			if err = SetSetting("blocklist", "[]"); err != nil {
+				log.Printf("Error resetting blocklist: %v", err)
+			}
 		}
 	}
-
 	g.ExecBlocklist = blocklist
 
-	g.SearchString, err = GetSetting("searchstring")
-	if err != nil || len(g.SearchString) == 0 {
-		// initialize with empty list string
-		err = SetSetting("searchstring", "https://duckduckgo.com/?q=%s")
-		if err != nil {
-			log.Printf("Error setting searchstring: %v", err)
-			return
-		}
+	g.SearchString, _ = GetSetting("searchstring")
+	if g.SearchString == "" {
 		g.SearchString = "https://duckduckgo.com/?q=%s"
+		if err := SetSetting("searchstring", g.SearchString); err != nil {
+			log.Printf("Error setting searchstring: %v", err)
+		}
 	}
-
 	g.AliasString, _ = GetSetting("aliases")
 }
 
@@ -81,12 +73,7 @@ func readSettings() (Settings, error) {
 		return nil, err
 	}
 
-	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			log.Printf("Error closing settings file: %v", err)
-		}
-	}(file)
+	defer file.Close()
 
 	var s Settings
 	dec := json.NewDecoder(file)
@@ -124,27 +111,32 @@ func writeSettings(s Settings) error {
 	return nil
 }
 
-// SetSetting stores a key-value pair in the settings and persists it to file.
 func SetSetting(key, value string) error {
-	settings, err := readSettings()
-	if err != nil {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	if err := loadSettings(); err != nil {
 		return err
 	}
-
 	settings[key] = value
-
 	return writeSettings(settings)
 }
 
-// GetSetting retrieves the value for a given key from settings.
-// Returns (value, true) if found, or ("", false) if the key does not exist.
 func GetSetting(key string) (string, error) {
-	settings, err := readSettings()
-
-	if err != nil {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	if err := loadSettings(); err != nil {
 		return "", err
 	}
+	return settings[key], nil
+}
 
-	value := settings[key]
-	return value, nil
+func loadSettings() error {
+	if settings != nil {
+		return nil
+	}
+	loaded, err := readSettings()
+	if err == nil {
+		settings = loaded
+	}
+	return err
 }

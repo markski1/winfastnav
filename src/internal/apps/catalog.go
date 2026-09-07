@@ -104,10 +104,8 @@ func refreshCatalog(fingerprint uint64) {
 	catalogMu.Lock()
 	catalogFingerprint = fingerprint
 	catalogMu.Unlock()
-	if changed || fingerprint != 0 {
-		if err := saveCatalog(catalogFile{Version: catalogVersion, Fingerprint: fingerprint, Apps: apps}); err != nil {
-			log.Printf("failed to save app catalog: %v", err)
-		}
+	if err := saveCatalog(catalogFile{Version: catalogVersion, Fingerprint: fingerprint, Apps: apps}); err != nil {
+		log.Printf("failed to save app catalog: %v", err)
 	}
 	if changed {
 		catalogMu.Lock()

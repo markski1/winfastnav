@@ -9,10 +9,10 @@ import (
 
 func UnblockAllApplications() {
 	appListMu.Lock()
-	g.ExecBlocklist = []string{}
+	g.ExecBlocklist = nil
 	appListMu.Unlock()
 
-	jsonData, err := json.Marshal(g.ExecBlocklist)
+	jsonData, err := json.Marshal([]string{})
 	if err != nil {
 		log.Printf("Error encoding list to JSON: %v", err)
 		return
@@ -28,7 +28,6 @@ func UnblockAllApplications() {
 
 func BlockApplication(application g.Resource) {
 	appListMu.Lock()
-	defer appListMu.Unlock()
 	for i, app := range g.AppList {
 		if app == application {
 			g.AppList = append(g.AppList[:i], g.AppList[i+1:]...)
@@ -37,7 +36,10 @@ func BlockApplication(application g.Resource) {
 	}
 
 	g.ExecBlocklist = append(g.ExecBlocklist, application.Filepath)
-	jsonData, err := json.Marshal(g.ExecBlocklist)
+	blocklist := append([]string(nil), g.ExecBlocklist...)
+	appListMu.Unlock()
+
+	jsonData, err := json.Marshal(blocklist)
 	if err != nil {
 		log.Printf("Error encoding list to JSON: %v", err)
 		return

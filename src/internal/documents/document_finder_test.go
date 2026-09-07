@@ -68,6 +68,12 @@ func TestDocumentSearchMatchesParentFolder(t *testing.T) {
 	}
 }
 
+func TestDocumentExtensionMustMatchExactly(t *testing.T) {
+	if extension := normalizeDocumentExtension(".docx.bak"); extension != "" {
+		t.Fatalf("invalid extension normalized to %q", extension)
+	}
+}
+
 func TestDocumentCollectorPromotesRecentMatchBeyondLimit(t *testing.T) {
 	collector := newDocumentCollector(2, []string{`C:\docs\recent.pdf`})
 	collector.add(g.Resource{Name: "First", Filepath: `C:\docs\first.pdf`})

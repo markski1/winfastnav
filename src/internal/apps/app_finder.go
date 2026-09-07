@@ -19,6 +19,10 @@ import (
 const appsFolderPrefix = `shell:AppsFolder\`
 
 func GetInstalledApps() []g.Resource {
+	appListMu.RLock()
+	blocklist := append([]string(nil), g.ExecBlocklist...)
+	appListMu.RUnlock()
+
 	keys := []registry.Key{
 		registry.LOCAL_MACHINE,
 		registry.CURRENT_USER,
@@ -124,7 +128,7 @@ func GetInstalledApps() []g.Resource {
 
 	// remove undesirables
 	for i, app := range apps {
-		if isAllowedApplication(app, skipIfSubstr, g.ExecBlocklist) {
+		if isAllowedApplication(app, skipIfSubstr, blocklist) {
 			cleanApps = append(cleanApps, apps[i])
 		}
 	}

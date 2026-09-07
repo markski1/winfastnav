@@ -17,13 +17,6 @@ const maxHTTPResponseSize = 1 << 20
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func StartsWith(s, prefix string) bool {
-	if len(s) < len(prefix) {
-		return false
-	}
-	return s[:len(prefix)] == prefix
-}
-
 func HttpGet(url string) (string, error) {
 	resp, err := httpClient.Get(url)
 
@@ -31,9 +24,7 @@ func HttpGet(url string) (string, error) {
 		return "", err
 	}
 
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
+	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return "", fmt.Errorf("request failed: %s", resp.Status)

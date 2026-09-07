@@ -38,18 +38,6 @@ func SetupDocs() {
 		"\\sdk\\",
 	}
 
-	relevantExtensions := []string{
-		".doc",
-		".docx",
-		".pdf",
-		".rtf",
-		".odt",
-		".xls",
-		".xlsx",
-		".ppt",
-		".pptx",
-	}
-
 	err = filepath.Walk(homeDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
@@ -59,14 +47,14 @@ func SetupDocs() {
 			if isHiddenDir(info) {
 				return filepath.SkipDir
 			}
-			if utils.ContainsAny(path, skipIfContains) {
+			if utils.ContainsAny(strings.ToLower(path), skipIfContains) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
 		ext := strings.ToLower(filepath.Ext(path))
-		if !utils.ContainsAny(ext, relevantExtensions) {
+		if normalizeDocumentExtension(ext) == "" {
 			return nil
 		}
 
@@ -90,7 +78,6 @@ func SetupDocs() {
 	documentCacheMu.Unlock()
 
 	log.Print("Documents indexed")
-	g.FinishedCachingDocs = true
 }
 
 func isHiddenDir(info os.FileInfo) bool {
