@@ -9,6 +9,7 @@ type Resource struct {
 	Filepath   string
 	Computed   bool
 	Document   bool
+	WebSearch  string         `json:"-"`
 	Command    *SystemCommand `json:"-"`
 	SearchName string         `json:"-"`
 	SearchPath string         `json:"-"`

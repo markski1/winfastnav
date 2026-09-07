@@ -18,6 +18,7 @@ const (
 	ActionRestart      = "restart"
 	ActionShutdown     = "shutdown"
 	ActionEmptyRecycle = "empty-recycle-bin"
+	maxResults         = 3
 )
 
 var (
@@ -47,17 +48,13 @@ func Find(query string) []g.Resource {
 	if query == "" {
 		return nil
 	}
-	matches := make([]g.Resource, 0, 6)
+	matches := make([]g.Resource, 0, maxResults)
 	for _, item := range availableSystemItems {
 		if strings.Contains(item.SearchName, query) || strings.Contains(item.SearchPath, query) {
 			matches = append(matches, item)
 		}
 	}
-	matches = recent.MatchAndRankLimit(matches, query, 6)
-	if len(matches) > 6 {
-		matches = matches[:6]
-	}
-	return matches
+	return recent.MatchAndRankLimit(matches, query, maxResults)
 }
 
 func RequiresConfirmation(action string) bool {

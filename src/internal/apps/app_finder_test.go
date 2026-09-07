@@ -15,14 +15,14 @@ func TestCleanExecutablePathRemovesQuotedIconIndex(t *testing.T) {
 	}
 }
 
-func TestStartMenuEntryWinsOverRegistryMetadata(t *testing.T) {
+func TestHasApplicationMatchesNameOrPath(t *testing.T) {
 	resources := []g.Resource{{
 		Name:     "Example Launcher",
 		Filepath: `C:\Program Files\Example\launcher.exe`,
 	}}
 
 	if !hasApplication(resources, "Example Launcher", `C:\Program Files\Example\uninstall.exe`) {
-		t.Fatal("a Start Menu application should prevent lower-priority registry metadata from replacing it")
+		t.Fatal("matching application names should be deduplicated")
 	}
 }
 
@@ -44,7 +44,6 @@ func TestCalculatorResource(t *testing.T) {
 }
 
 func TestAllowedApplication(t *testing.T) {
-	skip := []string{"updater"}
 	tests := []struct {
 		name string
 		app  g.Resource
@@ -53,11 +52,10 @@ func TestAllowedApplication(t *testing.T) {
 		{name: "executable", app: g.Resource{Name: "Example", Filepath: `C:\Apps\example.exe`}, want: true},
 		{name: "registered app", app: g.Resource{Name: "Example", Filepath: appsFolderPrefix + "Example.Package_123!App"}, want: true},
 		{name: "non-application", app: g.Resource{Name: "Example", Filepath: `C:\Files\example.txt`}, want: false},
-		{name: "filtered name", app: g.Resource{Name: "Example Updater", Filepath: `C:\Apps\example.exe`}, want: false},
 	}
 
 	for _, test := range tests {
-		if got := isAllowedApplication(test.app, skip, nil); got != test.want {
+		if got := isAllowedApplication(test.app, nil); got != test.want {
 			t.Errorf("%s: isAllowedApplication() = %t, want %t", test.name, got, test.want)
 		}
 	}

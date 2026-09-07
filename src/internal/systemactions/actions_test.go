@@ -9,6 +9,12 @@ func TestFindSystemAction(t *testing.T) {
 	}
 }
 
+func TestFindLimitsSystemActions(t *testing.T) {
+	if results := Find("settings"); len(results) > maxResults {
+		t.Fatalf("got %d system actions, want at most %d", len(results), maxResults)
+	}
+}
+
 func TestDisruptiveActionsRequireConfirmation(t *testing.T) {
 	for _, action := range []string{ActionLock, ActionSleep, ActionRestart, ActionShutdown, ActionEmptyRecycle} {
 		if !RequiresConfirmation(action) {

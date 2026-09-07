@@ -12,14 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sys/windows/registry"
-
 	g "winfastnav/internal/globals"
 )
 
 const (
-	catalogVersion  = 1
-	catalogFilename = "apps-v1.json"
+	catalogVersion  = 2
+	catalogFilename = "apps-v2.json"
 	catalogPoll     = 2 * time.Minute
 )
 
@@ -190,28 +188,6 @@ func applicationSourcesFingerprint() uint64 {
 		}
 	}
 
-	keys := []registry.Key{registry.LOCAL_MACHINE, registry.CURRENT_USER}
-	paths := []string{
-		`SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`,
-		`SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall`,
-		`SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths`,
-		`SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\App Paths`,
-	}
-	for _, root := range keys {
-		for _, path := range paths {
-			key, err := registry.OpenKey(root, path, registry.QUERY_VALUE|registry.ENUMERATE_SUB_KEYS)
-			if err != nil {
-				continue
-			}
-			info, err := key.Stat()
-			_ = key.Close()
-			if err == nil {
-				_, _ = hash.Write([]byte(path))
-				_, _ = hash.Write([]byte(strconv.FormatInt(info.ModTime().UnixNano(), 10)))
-				_, _ = hash.Write([]byte(strconv.FormatUint(uint64(info.SubKeyCount), 10)))
-			}
-		}
-	}
 	return hash.Sum64()
 }
 

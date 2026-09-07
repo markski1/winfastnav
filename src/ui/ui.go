@@ -272,6 +272,8 @@ func (l *launcher) key(gtx layout.Context, event key.Event) {
 	case key.NameReturn, key.NameEnter:
 		if s.Selected >= 0 {
 			l.open(s.Selected)
+		} else if g.CurrentMode != g.ModeSearchProgram {
+			l.submit(l.editor.Text())
 		}
 	case key.NameDeleteForward:
 		if g.CurrentMode == g.ModeSearchProgram && s.Selected >= 0 {
@@ -369,7 +371,7 @@ func (l *launcher) submit(input string) {
 			l.message(result)
 		}(input)
 	case g.ModeSearchInternet:
-		if err := utils.OpenURI(strings.ReplaceAll(g.SearchString, "%s", url.QueryEscape(input))); err != nil {
+		if err := l.openWebSearch(input); err != nil {
 			l.message("Sorry, there was an error opening your web browser.")
 		} else {
 			HideWindow()
@@ -379,6 +381,10 @@ func (l *launcher) submit(input string) {
 			l.open(s.Selected)
 		}
 	}
+}
+
+func (l *launcher) openWebSearch(query string) error {
+	return utils.OpenURI(strings.ReplaceAll(g.SearchString, "%s", url.QueryEscape(query)))
 }
 
 func (l *launcher) mode(mode int) {
@@ -440,6 +446,14 @@ func (l *launcher) open(index int) {
 	}
 	item := l.items[index]
 	l.mu.RUnlock()
+	if item.WebSearch != "" {
+		if err := l.openWebSearch(item.WebSearch); err != nil {
+			l.message("Sorry, there was an error opening your web browser.")
+			return
+		}
+		HideWindow()
+		return
+	}
 	if item.Command != nil {
 		if systemactions.RequiresConfirmation(item.Command.Action) {
 			l.pendingAction = item
@@ -477,7 +491,7 @@ func (l *launcher) block(index int) {
 	}
 	item := l.items[index]
 	l.mu.RUnlock()
-	if item.Computed || item.Document || item.Command != nil {
+	if item.Computed || item.Document || item.Command != nil || item.WebSearch != "" {
 		return
 	}
 	apps.BlockApplication(item)
@@ -526,7 +540,7 @@ func (l *launcher) copySelected(gtx layout.Context) {
 
 func (l *launcher) runSelectedElevated() {
 	item, ok := l.selectedItem()
-	if !ok || item.Computed || item.Document || item.Command != nil {
+	if !ok || item.Computed || item.Document || item.Command != nil || item.WebSearch != "" {
 		return
 	}
 	if err := apps.RunProgramElevated(item.Filepath); err != nil {
@@ -653,7 +667,7 @@ func (l *launcher) resultsPage(gtx layout.Context, s presentation.State) layout.
 func (l *launcher) resultRows() []resultRow {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	var calculated, commandsRows, applications, documentsRows []resultRow
+	var calculated, commandsRows, webSearchRows, applications, documentsRows []resultRow
 	for resourceIndex, item := range l.items {
 		if item.Computed {
 			calculated = append(calculated, resultRow{title: item.Name, detail: "Calculated result / Enter to use", kind: "Result", resourceIndex: resourceIndex})
@@ -661,6 +675,10 @@ func (l *launcher) resultRows() []resultRow {
 		}
 		if item.Command != nil {
 			commandsRows = append(commandsRows, resultRow{title: item.Name, detail: item.Command.Detail, kind: "Command", resourceIndex: resourceIndex})
+			continue
+		}
+		if item.WebSearch != "" {
+			webSearchRows = append(webSearchRows, resultRow{title: item.Name, detail: "Open in browser", kind: "Web", resourceIndex: resourceIndex})
 			continue
 		}
 		row := resultRow{title: item.Name, detail: filepath.Dir(item.Filepath), iconPath: item.Filepath, kind: "Application", resourceIndex: resourceIndex}
@@ -672,17 +690,21 @@ func (l *launcher) resultRows() []resultRow {
 		applications = append(applications, row)
 	}
 	rows := append([]resultRow(nil), calculated...)
-	if len(commandsRows) > 0 {
-		rows = append(rows, resultRow{title: "COMMANDS", section: true})
-		rows = append(rows, commandsRows...)
-	}
 	if len(applications) > 0 {
 		rows = append(rows, resultRow{title: "APPS", section: true})
 		rows = append(rows, applications...)
 	}
+	if len(commandsRows) > 0 {
+		rows = append(rows, resultRow{title: "COMMANDS", section: true})
+		rows = append(rows, commandsRows...)
+	}
 	if len(documentsRows) > 0 {
 		rows = append(rows, resultRow{title: "DOCUMENTS", section: true})
 		rows = append(rows, documentsRows...)
+	}
+	if len(webSearchRows) > 0 {
+		rows = append(rows, resultRow{title: "SEARCH", section: true})
+		rows = append(rows, webSearchRows...)
 	}
 	return rows
 }

@@ -15,13 +15,14 @@ import (
 const (
 	maxCombinedResults = 30
 	maxAppResults      = 20
+	maxCommandResults  = 3
 )
 
 func HandleTextInput(query string) (retItems []globals.Resource, resultStr *string) {
 	if len(query) == 0 {
 		switch globals.CurrentMode {
 		case globals.ModeSearchProgram:
-			return combineResults(nil, apps.RecentApplications(), documents.RecentDocuments()), nil
+			return combineResults(apps.RecentApplications(), nil, documents.RecentDocuments()), nil
 		}
 		return nil, nil
 	}
@@ -44,7 +45,11 @@ func HandleTextInput(query string) (retItems []globals.Resource, resultStr *stri
 		systemResults := systemactions.Find(query)
 		appResults := apps.FindAppResults(query)
 		documentResults := documents.FilterDocumentsByName(query)
-		return withCalculation(combineResults(systemResults, appResults, documentResults), calculation, calculated), nil
+		results := combineResults(appResults, systemResults, documentResults)
+		if len(results) == 0 && !calculated {
+			results = []globals.Resource{{Name: "Search the web for: " + query, WebSearch: query}}
+		}
+		return withCalculation(results, calculation, calculated), nil
 
 	case globals.ModeAskGPT:
 		s := fmt.Sprintf("Quick GPT: %s", query)
@@ -86,13 +91,13 @@ func withCalculation(resources []globals.Resource, calculation string, calculate
 	return append(result, resources...)
 }
 
-func combineResults(systemResults, appResults, documentResults []globals.Resource) []globals.Resource {
-	limit := min(len(systemResults), maxCombinedResults)
-	combined := append([]globals.Resource(nil), systemResults[:limit]...)
+func combineResults(appResults, systemResults, documentResults []globals.Resource) []globals.Resource {
+	limit := min(len(appResults), maxAppResults)
+	combined := append([]globals.Resource(nil), appResults[:limit]...)
 	remaining := maxCombinedResults - len(combined)
 	if remaining > 0 {
-		limit = min(len(appResults), min(maxAppResults, remaining))
-		combined = append(combined, appResults[:limit]...)
+		limit = min(len(systemResults), min(maxCommandResults, remaining))
+		combined = append(combined, systemResults[:limit]...)
 	}
 	remaining = maxCombinedResults - len(combined)
 	if remaining > 0 {

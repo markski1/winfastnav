@@ -10,10 +10,8 @@ import (
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
-	"golang.org/x/sys/windows/registry"
 
 	g "winfastnav/internal/globals"
-	"winfastnav/internal/utils"
 )
 
 const appsFolderPrefix = `shell:AppsFolder\`
@@ -23,112 +21,15 @@ func GetInstalledApps() []g.Resource {
 	blocklist := append([]string(nil), g.ExecBlocklist...)
 	appListMu.RUnlock()
 
-	keys := []registry.Key{
-		registry.LOCAL_MACHINE,
-		registry.CURRENT_USER,
-	}
-	basePaths := []string{
-		`SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`,
-		`SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall`,
-	}
-
-	// We only care about programs
-	skipRelease := map[string]struct{}{
-		"hotfix":          {},
-		"security update": {},
-		"service pack":    {},
-		"update":          {},
-	}
-
-	// We don't care about stuff with these substr either
-	skipIfSubstr := []string{
-		"speech recognition",
-		"redistributable",
-		"x64-based systems",
-		"application verifier",
-		"teams meeting add-in",
-		"teams machine-wide installer",
-		"ms teams",
-		"msteams",
-		"unins",
-		"sdk",
-		"runtime",
-		"rundll32.exe",
-	}
-
 	var apps []g.Resource
 
 	apps = append(apps, calculatorResource())
 	apps = scanAppsFolder(apps)
-	// Windows Search presents Start Menu launchers. Index them before the registry metadata stuff
-	// because these will be less likely to be shit.
 	apps = scanStartMenu(apps)
-	apps = scanAppPaths(apps)
-
-	for _, keyRoot := range keys {
-		for _, basePath := range basePaths {
-			k, err := registry.OpenKey(keyRoot, basePath, registry.READ)
-
-			if err != nil {
-				continue
-			}
-
-			names, err := k.ReadSubKeyNames(-1)
-
-			_ = k.Close()
-
-			if err != nil {
-				continue
-			}
-
-			// Go through each application subkey
-			for _, name := range names {
-				subKey, err := registry.OpenKey(keyRoot, basePath+`\`+name, registry.READ)
-				if err != nil {
-					continue
-				}
-
-				// Gotta have a name
-				displayName, _, err := subKey.GetStringValue("DisplayName")
-				if err != nil || strings.TrimSpace(displayName) == "" {
-					_ = subKey.Close()
-					continue
-				}
-
-				// no system components
-				if sysVal, _, err := subKey.GetIntegerValue("SystemComponent"); err == nil && sysVal > 0 {
-					_ = subKey.Close()
-					continue
-				}
-
-				// skip releases in skipRelease
-				if rel, _, err := subKey.GetStringValue("ReleaseType"); err == nil {
-					if _, bad := skipRelease[strings.ToLower(rel)]; bad {
-						_ = subKey.Close()
-						continue
-					}
-				}
-
-				execPath, _, err := subKey.GetStringValue("DisplayIcon")
-
-				if err != nil || len(execPath) < 1 {
-					_ = subKey.Close()
-					continue
-				}
-
-				execPath = cleanExecutablePath(execPath)
-				if execPath != "" && strings.HasSuffix(execPath, ".exe") && !hasApplication(apps, displayName, execPath) {
-					apps = append(apps, g.Resource{Name: strings.TrimSpace(displayName), Filepath: execPath})
-				}
-				_ = subKey.Close()
-			}
-		}
-	}
 	var cleanApps []g.Resource
 
-	// remove undesirables
 	for i, app := range apps {
-		if isAllowedApplication(app, skipIfSubstr, blocklist) {
+		if isAllowedApplication(app, blocklist) {
 			cleanApps = append(cleanApps, apps[i])
 		}
 	}
@@ -169,10 +70,9 @@ func isAppsFolderPath(path string) bool {
 	return strings.HasPrefix(strings.ToLower(path), strings.ToLower(appsFolderPrefix)) && len(path) > len(appsFolderPrefix)
 }
 
-func isAllowedApplication(app g.Resource, skipIfSubstr, blocklist []string) bool {
+func isAllowedApplication(app g.Resource, blocklist []string) bool {
 	path := strings.ToLower(app.Filepath)
-	return isLaunchableApplication(path) && !utils.ContainsAny(path, skipIfSubstr) &&
-		!utils.ContainsAny(strings.ToLower(app.Name), skipIfSubstr) && !containsAnyFold(path, blocklist)
+	return isLaunchableApplication(path) && !containsAnyFold(path, blocklist)
 }
 
 func containsAnyFold(value string, values []string) bool {
@@ -218,45 +118,6 @@ func resolveShortcut(path string) (string, error) {
 		return "", err
 	}
 	return tp.ToString(), nil
-}
-
-func scanAppPaths(currentAppList []g.Resource) []g.Resource {
-	keys := []registry.Key{registry.LOCAL_MACHINE, registry.CURRENT_USER}
-	basePaths := []string{
-		`SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths`,
-		`SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\App Paths`,
-	}
-
-	for _, keyRoot := range keys {
-		for _, basePath := range basePaths {
-			key, err := registry.OpenKey(keyRoot, basePath, registry.READ)
-			if err != nil {
-				continue
-			}
-			names, err := key.ReadSubKeyNames(-1)
-			_ = key.Close()
-			if err != nil {
-				continue
-			}
-			for _, name := range names {
-				entry, err := registry.OpenKey(keyRoot, basePath+`\`+name, registry.READ)
-				if err != nil {
-					continue
-				}
-				path, _, err := entry.GetStringValue("")
-				_ = entry.Close()
-				if err != nil {
-					continue
-				}
-				path = cleanExecutablePath(path)
-				if path == "" || !strings.HasSuffix(path, ".exe") || hasApplication(currentAppList, name, path) {
-					continue
-				}
-				currentAppList = append(currentAppList, g.Resource{Name: strings.TrimSuffix(name, filepath.Ext(name)), Filepath: path})
-			}
-		}
-	}
-	return currentAppList
 }
 
 func scanAppsFolder(currentAppList []g.Resource) []g.Resource {
