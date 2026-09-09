@@ -19,8 +19,12 @@ const (
 )
 
 func HandleTextInput(query string) (retItems []globals.Resource, resultStr *string) {
+	return HandleTextInputMode(query, globals.CurrentMode)
+}
+
+func HandleTextInputMode(query string, mode int) (retItems []globals.Resource, resultStr *string) {
 	if len(query) == 0 {
-		switch globals.CurrentMode {
+		switch mode {
 		case globals.ModeSearchProgram:
 			return combineResults(apps.RecentApplications(), nil, documents.RecentDocuments()), nil
 		}
@@ -35,7 +39,7 @@ func HandleTextInput(query string) (retItems []globals.Resource, resultStr *stri
 		return nil, &help
 	}
 
-	switch globals.CurrentMode {
+	switch mode {
 	case globals.ModeSearchInternet:
 		s := fmt.Sprintf("Internet search: %s", query)
 		s = utils.WrapTextByWords(s, 64)

@@ -16,9 +16,17 @@ import (
 )
 
 var (
-	DocumentCache   []g.Resource
-	documentCacheMu sync.RWMutex
+	DocumentCache       []g.Resource
+	documentCacheMu     sync.RWMutex
+	documentChangedMu   sync.RWMutex
+	documentChangedHook func()
 )
+
+func SetChangedHandler(handler func()) {
+	documentChangedMu.Lock()
+	documentChangedHook = handler
+	documentChangedMu.Unlock()
+}
 
 func SetupDocs() {
 	log.Print("Indexing documents")
@@ -78,6 +86,12 @@ func SetupDocs() {
 	documentCacheMu.Unlock()
 
 	log.Print("Documents indexed")
+	documentChangedMu.RLock()
+	handler := documentChangedHook
+	documentChangedMu.RUnlock()
+	if handler != nil {
+		handler()
+	}
 }
 
 func isHiddenDir(info os.FileInfo) bool {

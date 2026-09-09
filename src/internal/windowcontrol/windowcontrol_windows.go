@@ -14,8 +14,11 @@ import (
 )
 
 const (
-	swHide    = 0
-	swRestore = 9
+	swHide                  = 0
+	swRestore               = 9
+	monitorDefaultToNearest = 2
+	swpNoZOrder             = 0x0004
+	swpNoActivate           = 0x0010
 )
 
 var (
@@ -27,7 +30,23 @@ var (
 	procIsWindow            = user32.NewProc("IsWindow")
 	procShowWindow          = user32.NewProc("ShowWindow")
 	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
+	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
+	procGetWindowRect       = user32.NewProc("GetWindowRect")
+	procMonitorFromWindow   = user32.NewProc("MonitorFromWindow")
+	procGetMonitorInfo      = user32.NewProc("GetMonitorInfoW")
+	procSetWindowPos        = user32.NewProc("SetWindowPos")
 )
+
+type rect struct {
+	left, top, right, bottom int32
+}
+
+type monitorInfo struct {
+	size    uint32
+	monitor rect
+	work    rect
+	flags   uint32
+}
 
 type Controller struct {
 	mu     sync.Mutex
@@ -61,7 +80,7 @@ func (c *Controller) Bind() error {
 	var found windows.Handle
 	callback := syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
 		handle := windows.Handle(hwnd)
-		if c.windowProcessID(handle) != pID || c.windowTitle(handle) != c.title {
+		if c.windowProcessID(handle) != pID || windowTitle(handle) != c.title {
 			return 1
 		}
 		found = handle
@@ -89,10 +108,76 @@ func (c *Controller) ShowAndFocus() error {
 	if err := c.Bind(); err != nil {
 		return err
 	}
+	_ = c.CenterOnForegroundMonitor()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	procShowWindow.Call(uintptr(c.handle), swRestore)
 	procSetForegroundWindow.Call(uintptr(c.handle))
+	return nil
+}
+
+func ShowExistingAndFocus(title string) (bool, error) {
+	if title == "" {
+		return false, fmt.Errorf("window title is empty")
+	}
+
+	var found windows.Handle
+	callback := syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
+		handle := windows.Handle(hwnd)
+		if windowTitle(handle) != title {
+			return 1
+		}
+		found = handle
+		return 0
+	})
+	procEnumWindows.Call(callback, 0)
+	if found == 0 {
+		return false, nil
+	}
+
+	procShowWindow.Call(uintptr(found), swRestore)
+	procSetForegroundWindow.Call(uintptr(found))
+	return true, nil
+}
+
+// CenterOnForegroundMonitor moves the launcher to the work area of the monitor
+// that was active before the launcher was shown.
+func (c *Controller) CenterOnForegroundMonitor() error {
+	if err := c.Bind(); err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	handle := c.handle
+	c.mu.Unlock()
+
+	var windowRect rect
+	if result, _, _ := procGetWindowRect.Call(uintptr(handle), uintptr(unsafe.Pointer(&windowRect))); result == 0 {
+		return fmt.Errorf("get launcher window rectangle")
+	}
+	width := windowRect.right - windowRect.left
+	height := windowRect.bottom - windowRect.top
+	if width <= 0 || height <= 0 {
+		return nil
+	}
+
+	foreground, _, _ := procGetForegroundWindow.Call()
+	if foreground == 0 {
+		foreground = uintptr(handle)
+	}
+	monitor, _, _ := procMonitorFromWindow.Call(foreground, monitorDefaultToNearest)
+	if monitor == 0 {
+		return nil
+	}
+
+	info := monitorInfo{size: uint32(unsafe.Sizeof(monitorInfo{}))}
+	if result, _, _ := procGetMonitorInfo.Call(monitor, uintptr(unsafe.Pointer(&info))); result == 0 {
+		return fmt.Errorf("get foreground monitor information")
+	}
+
+	x := info.work.left + (info.work.right-info.work.left-width)/2
+	y := info.work.top + (info.work.bottom-info.work.top-height)/2
+	procSetWindowPos.Call(uintptr(handle), 0, uintptr(x), uintptr(y), uintptr(width), uintptr(height), swpNoZOrder|swpNoActivate)
 	return nil
 }
 
@@ -110,7 +195,7 @@ func (c *Controller) windowProcessID(handle windows.Handle) uint32 {
 	return pID
 }
 
-func (c *Controller) windowTitle(handle windows.Handle) string {
+func windowTitle(handle windows.Handle) string {
 	length, _, _ := procGetWindowTextLength.Call(uintptr(handle))
 	if length == 0 {
 		return ""

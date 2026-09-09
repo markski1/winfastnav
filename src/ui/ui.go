@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"gioui.org/app"
 	"gioui.org/io/clipboard"
@@ -38,7 +40,10 @@ import (
 	"winfastnav/internal/windowcontrol"
 )
 
-const maxResults = 30
+const (
+	maxResults     = 30
+	searchDebounce = 50 * time.Millisecond
+)
 
 type launcher struct {
 	controller                                    *presentation.Controller
@@ -58,8 +63,15 @@ type launcher struct {
 	startupEnabled                                bool
 	settingsStatus                                string
 	centered                                      bool
+	focused                                       bool
+	windowInitialized                             bool
 	refreshPending                                atomic.Bool
 	pendingAction                                 g.Resource
+	searchMu                                      sync.Mutex
+	searchGeneration                              uint64
+	searchCancel                                  context.CancelFunc
+	searchTimer                                   *time.Timer
+	pendingSearch                                 *searchResult
 }
 
 var active *launcher
@@ -73,6 +85,14 @@ type resultRow struct {
 	section       bool
 }
 
+type searchResult struct {
+	generation uint64
+	mode       int
+	query      string
+	items      []g.Resource
+	message    string
+}
+
 func SetupUI() {
 	theme := material.NewTheme()
 	theme.TextSize = unit.Sp(12.35)
@@ -81,8 +101,7 @@ func SetupUI() {
 	active.aliases.SingleLine = true
 	active.window.Option(app.Title(g.AppName), app.Size(unit.Dp(580), unit.Dp(460)), app.MinSize(unit.Dp(580), unit.Dp(460)), app.MaxSize(unit.Dp(580), unit.Dp(460)), app.Decorated(false), app.TopMost(true))
 	active.windowControl = windowcontrol.New(g.AppName)
-	active.controller.Post(presentation.Command{Kind: presentation.CommandShow})
-	active.controller.Post(presentation.Command{Kind: presentation.CommandFocusSearch})
+	active.controller.Post(presentation.Command{Kind: presentation.CommandHide})
 	active.message(g.AppName + "\nMenu -> Help")
 }
 
@@ -118,14 +137,27 @@ func ShowWindow() {
 	active.window.Invalidate()
 }
 
+func ToggleWindow() {
+	if active == nil {
+		return
+	}
+	if active.controller.Snapshot().Visible {
+		HideWindow()
+		return
+	}
+	ShowWindow()
+}
+
 func HideWindow() {
 	if active == nil {
 		return
 	}
+	active.cancelSearch()
 	active.clearItems()
-	active.controller.Post(presentation.Command{Kind: presentation.CommandSetQuery})
-	active.controller.Post(presentation.Command{Kind: presentation.CommandSetResults})
-	active.controller.Post(presentation.Command{Kind: presentation.CommandHide})
+	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetQuery})
+	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
+	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetLoading, Loading: false})
+	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandHide})
 	go func() {
 		_ = active.windowControl.Hide()
 	}()
@@ -165,8 +197,22 @@ func (l *launcher) run() error {
 				l.window.Perform(system.ActionCenter)
 				l.centered = true
 			}
+			if e.Config.Focused {
+				l.focused = true
+			} else if l.focused && l.controller.Snapshot().Visible {
+				l.focused = false
+				HideWindow()
+			}
 		case app.ViewEvent:
 			l.windowControl.BindView(e)
+			if !l.windowInitialized {
+				l.windowInitialized = true
+				go func() {
+					if err := l.windowControl.Hide(); err != nil {
+						log.Printf("failed to hide launcher on startup: %v", err)
+					}
+				}()
+			}
 		case app.FrameEvent:
 			gtx := app.NewContext(&l.ops, e)
 			l.controller.SetInvalidator(l.window.Invalidate)
@@ -184,6 +230,7 @@ func (l *launcher) update(gtx layout.Context) {
 			l.query(state.Query)
 		}
 	}
+	l.applyPendingSearch()
 	state := l.controller.Snapshot()
 	if l.editor.Text() != state.Query {
 		l.editor.SetText(state.Query)
@@ -299,24 +346,108 @@ func (l *launcher) query(query string) {
 		l.activateCommandMode(g.ModeSearchInternet)
 		return
 	}
-	l.controller.Post(presentation.Command{Kind: presentation.CommandSetQuery, Query: query})
-	items, message := core.HandleTextInput(query)
-	if message != nil {
-		l.clearItems()
-		l.controller.Post(presentation.Command{Kind: presentation.CommandSetResults})
-		l.message(*message)
+	mode := l.controller.Snapshot().Mode
+	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetQuery, Query: query})
+	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetLoading, Loading: true})
+	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
+	l.clearItems()
+	l.message("")
+	l.beginSearch(query, mode)
+}
+
+func (l *launcher) beginSearch(query string, mode int) {
+	l.searchMu.Lock()
+	if l.searchTimer != nil {
+		l.searchTimer.Stop()
+		l.searchTimer = nil
+	}
+	if l.searchCancel != nil {
+		l.searchCancel()
+		l.searchCancel = nil
+	}
+	l.searchGeneration++
+	generation := l.searchGeneration
+	ctx, cancel := context.WithCancel(context.Background())
+	l.searchCancel = cancel
+	l.searchTimer = time.AfterFunc(searchDebounce, func() {
+		l.runSearch(ctx, generation, query, mode)
+	})
+	l.searchMu.Unlock()
+}
+
+func (l *launcher) runSearch(ctx context.Context, generation uint64, query string, mode int) {
+	l.searchMu.Lock()
+	if generation != l.searchGeneration {
+		l.searchMu.Unlock()
 		return
 	}
-	if g.CurrentMode == g.ModeSearchProgram {
-		l.mu.Lock()
-		l.items = items
-		l.mu.Unlock()
-		l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults, ResultCount: len(items)})
-		if firstResultSelected(query, len(items)) {
-			l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSelectResult, Selected: 0})
-		}
-		l.message("")
+	l.searchTimer = nil
+	l.searchMu.Unlock()
+
+	items, message := core.HandleTextInputMode(query, mode)
+	if ctx.Err() != nil {
+		return
 	}
+
+	l.searchMu.Lock()
+	if generation != l.searchGeneration || ctx.Err() != nil {
+		l.searchMu.Unlock()
+		return
+	}
+	l.pendingSearch = &searchResult{generation: generation, mode: mode, query: query, items: items}
+	if message != nil {
+		l.pendingSearch.message = *message
+	}
+	l.searchMu.Unlock()
+	l.window.Invalidate()
+}
+
+func (l *launcher) applyPendingSearch() {
+	l.searchMu.Lock()
+	result := l.pendingSearch
+	l.pendingSearch = nil
+	generation := l.searchGeneration
+	l.searchMu.Unlock()
+	if result == nil || result.generation != generation {
+		return
+	}
+
+	state := l.controller.Snapshot()
+	if state.Page != presentation.PageLauncher || state.Mode != result.mode || state.Query != result.query {
+		return
+	}
+	if result.message != "" {
+		l.clearItems()
+		l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
+		l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetLoading, Loading: false})
+		l.message(result.message)
+		return
+	}
+
+	l.mu.Lock()
+	l.items = result.items
+	l.mu.Unlock()
+	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults, ResultCount: len(result.items)})
+	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetLoading, Loading: false})
+	if firstResultSelected(result.query, len(result.items)) {
+		l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSelectResult, Selected: 0})
+	}
+	l.message("")
+}
+
+func (l *launcher) cancelSearch() {
+	l.searchMu.Lock()
+	if l.searchTimer != nil {
+		l.searchTimer.Stop()
+		l.searchTimer = nil
+	}
+	if l.searchCancel != nil {
+		l.searchCancel()
+		l.searchCancel = nil
+	}
+	l.searchGeneration++
+	l.pendingSearch = nil
+	l.searchMu.Unlock()
 }
 
 func firstResultSelected(query string, resultCount int) bool {
@@ -397,6 +528,7 @@ func (l *launcher) mode(mode int) {
 }
 
 func (l *launcher) activateCommandMode(mode int) {
+	l.cancelSearch()
 	g.CurrentMode = mode
 	l.clearItems()
 	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetMode, Mode: mode})
@@ -946,6 +1078,13 @@ func (l *launcher) resultSection(gtx layout.Context, title string) layout.Dimens
 }
 
 func (l *launcher) emptyResults(gtx layout.Context, state presentation.State) layout.Dimensions {
+	if state.Loading {
+		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			style := material.Label(l.theme, unit.Sp(13), "Searching…")
+			style.Color = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 255}
+			return style.Layout(gtx)
+		})
+	}
 	if state.Message == "" {
 		return layout.Dimensions{Size: gtx.Constraints.Min}
 	}

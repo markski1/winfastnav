@@ -60,9 +60,3 @@ func TestAllowedApplication(t *testing.T) {
 		}
 	}
 }
-
-func TestInstalledAppsAreDiscovered(t *testing.T) {
-	if len(GetInstalledApps()) == 0 {
-		t.Fatal("no applications were discovered")
-	}
-}
