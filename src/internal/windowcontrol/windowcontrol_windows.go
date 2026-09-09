@@ -19,6 +19,12 @@ const (
 	monitorDefaultToNearest = 2
 	swpNoZOrder             = 0x0004
 	swpNoActivate           = 0x0010
+	swpNoSize               = 0x0001
+	swpNoMove               = 0x0002
+	swpFrameChanged         = 0x0020
+	windowExStyleIndex      = ^uintptr(19)
+	wsExToolWindow          = 0x00000080
+	wsExAppWindow           = 0x00040000
 )
 
 var (
@@ -35,6 +41,8 @@ var (
 	procMonitorFromWindow   = user32.NewProc("MonitorFromWindow")
 	procGetMonitorInfo      = user32.NewProc("GetMonitorInfoW")
 	procSetWindowPos        = user32.NewProc("SetWindowPos")
+	procGetWindowLongPtr    = user32.NewProc("GetWindowLongPtrW")
+	procSetWindowLongPtr    = user32.NewProc("SetWindowLongPtrW")
 )
 
 type rect struct {
@@ -101,6 +109,20 @@ func (c *Controller) Hide() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	procShowWindow.Call(uintptr(c.handle), swHide)
+	return nil
+}
+
+func (c *Controller) HideFromTaskbar() error {
+	if err := c.Bind(); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	handle := c.handle
+	c.mu.Unlock()
+	style, _, _ := procGetWindowLongPtr.Call(uintptr(handle), windowExStyleIndex)
+	style = (style | wsExToolWindow) &^ wsExAppWindow
+	procSetWindowLongPtr.Call(uintptr(handle), windowExStyleIndex, style)
+	procSetWindowPos.Call(uintptr(handle), 0, 0, 0, 0, 0, swpNoSize|swpNoMove|swpNoZOrder|swpNoActivate|swpFrameChanged)
 	return nil
 }
 

@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	catalogVersion  = 2
-	catalogFilename = "apps-v2.json"
+	catalogVersion  = 3
+	catalogFilename = "apps-v3.json"
 	catalogPoll     = 2 * time.Minute
 )
 

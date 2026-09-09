@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"gioui.org/app"
+	"gioui.org/font"
 	"gioui.org/io/clipboard"
 	"gioui.org/io/key"
 	"gioui.org/io/system"
@@ -43,6 +44,7 @@ import (
 
 const (
 	maxResults     = 30
+	maxAnswerLinks = 12
 	searchDebounce = 50 * time.Millisecond
 )
 
@@ -68,14 +70,20 @@ type launcher struct {
 	startupEnabled                                bool
 	settingsStatus                                string
 	centered                                      bool
-	focused                                       bool
+	focused                                       atomic.Bool
 	windowInitialized                             bool
 	lightTheme                                    bool
 	compact                                       bool
 	palette                                       uiPalette
+	windowMu                                      sync.Mutex
 	windowReady                                   atomic.Bool
+	windowGeneration                              atomic.Uint64
 	refreshPending                                atomic.Bool
 	answerGeneration                              atomic.Uint64
+	answerMessage                                 string
+	answerSpans                                   []markdownSpan
+	answerURLs                                    []string
+	answerLinks                                   [maxAnswerLinks]widget.Clickable
 	pendingAction                                 g.Resource
 	searchMu                                      sync.Mutex
 	searchGeneration                              uint64
@@ -101,6 +109,12 @@ type searchResult struct {
 	query      string
 	items      []g.Resource
 	message    string
+}
+
+type answerAtom struct {
+	text string
+	span markdownSpan
+	link int
 }
 
 type uiPalette struct {
@@ -180,7 +194,6 @@ func SetupUI() {
 	active.window.Option(app.Title(g.AppName), app.Size(unit.Dp(580), unit.Dp(460)), app.MinSize(unit.Dp(580), unit.Dp(460)), app.MaxSize(unit.Dp(580), unit.Dp(460)), app.Decorated(false), app.TopMost(true))
 	active.windowControl = windowcontrol.New(g.AppName)
 	active.controller.Post(presentation.Command{Kind: presentation.CommandHide})
-	active.message(g.AppName + "\nMenu -> Help")
 }
 
 func (l *launcher) applyPalette() {
@@ -212,6 +225,7 @@ func ShowWindow() {
 	if active == nil {
 		return
 	}
+	generation := active.windowGeneration.Add(1)
 	if active.controller.Snapshot().Page == presentation.PageSettings {
 		core.UpdateAliasSetting(g.AliasString)
 		active.commitIndexSettings()
@@ -223,25 +237,39 @@ func ShowWindow() {
 	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageLauncher})
 	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetQuery})
 	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
-	active.query("")
-	active.message(g.AppName + "\nMenu -> Help")
-	active.showAndFocus()
+	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetMessage})
+	active.cancelSearch()
+	active.showRecent()
+	active.showAndFocus(generation)
 	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandFocusSearch})
 	active.invalidate()
 }
 
-func (l *launcher) showAndFocus() {
-	if err := l.windowControl.ShowAndFocus(); err == nil {
+func (l *launcher) showAndFocus(generation uint64) {
+	if err := l.setWindowVisible(generation, true); err == nil {
 		return
 	}
 	time.AfterFunc(100*time.Millisecond, func() {
-		if !l.controller.Snapshot().Visible {
+		err := l.setWindowVisible(generation, true)
+		if err == nil {
 			return
 		}
-		if err := l.windowControl.ShowAndFocus(); err != nil {
+		if generation == l.windowGeneration.Load() && l.controller.Snapshot().Visible {
 			log.Printf("failed to show launcher: %v", err)
 		}
 	})
+}
+
+func (l *launcher) setWindowVisible(generation uint64, visible bool) error {
+	l.windowMu.Lock()
+	defer l.windowMu.Unlock()
+	if generation != l.windowGeneration.Load() || l.controller.Snapshot().Visible != visible {
+		return nil
+	}
+	if visible {
+		return l.windowControl.ShowAndFocus()
+	}
+	return l.windowControl.Hide()
 }
 
 func ToggleWindow() {
@@ -259,16 +287,23 @@ func HideWindow() {
 	if active == nil {
 		return
 	}
+	generation := active.windowGeneration.Add(1)
 	active.answerGeneration.Add(1)
 	active.cancelSearch()
 	active.clearItems()
+	active.focused.Store(false)
 	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetQuery})
 	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
 	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetLoading, Loading: false})
+	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetMessage})
 	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandHide})
-	go func() {
-		_ = active.windowControl.Hide()
-	}()
+	go active.hideWindow(generation)
+}
+
+func (l *launcher) hideWindow(generation uint64) {
+	if err := l.setWindowVisible(generation, false); err != nil {
+		log.Printf("failed to hide launcher: %v", err)
+	}
 }
 
 func RefreshResults() {
@@ -314,20 +349,16 @@ func (l *launcher) run() error {
 				l.centered = true
 			}
 			if e.Config.Focused {
-				l.focused = true
-			} else if l.focused && l.controller.Snapshot().Visible {
-				l.focused = false
+				l.focused.Store(true)
+			} else if l.focused.Swap(false) && l.controller.Snapshot().Visible {
 				HideWindow()
 			}
 		case app.ViewEvent:
 			l.windowControl.BindView(e)
 			if !l.windowInitialized {
 				l.windowInitialized = true
-				go func() {
-					if err := l.windowControl.Hide(); err != nil {
-						log.Printf("failed to hide launcher on startup: %v", err)
-					}
-				}()
+				l.focused.Store(false)
+				go l.initializeWindow(l.windowGeneration.Load())
 			}
 		case app.FrameEvent:
 			gtx := app.NewContext(&l.ops, e)
@@ -337,6 +368,15 @@ func (l *launcher) run() error {
 			l.layout(gtx)
 			e.Frame(&l.ops)
 		}
+	}
+}
+
+func (l *launcher) initializeWindow(generation uint64) {
+	if err := l.windowControl.HideFromTaskbar(); err != nil {
+		log.Printf("failed to hide launcher from taskbar: %v", err)
+	}
+	if err := l.setWindowVisible(generation, false); err != nil {
+		log.Printf("failed to hide launcher on startup: %v", err)
 	}
 }
 
@@ -470,6 +510,15 @@ func (l *launcher) query(query string) {
 	}
 	l.message("")
 	l.beginSearch(query, mode)
+}
+
+func (l *launcher) showRecent() {
+	items, _ := core.HandleTextInputMode("", g.ModeSearchProgram)
+	l.mu.Lock()
+	l.items = items
+	l.mu.Unlock()
+	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults, ResultCount: len(items)})
+	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetLoading, Loading: false})
 }
 
 func (l *launcher) beginSearch(query string, mode int) {
@@ -1361,6 +1410,9 @@ func (l *launcher) emptyResults(gtx layout.Context, state presentation.State) la
 	if state.Message == "" {
 		return layout.Dimensions{Size: gtx.Constraints.Min}
 	}
+	if state.Mode == g.ModeQuickAnswer {
+		return l.quickAnswer(gtx, state.Message)
+	}
 	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		style := material.Label(l.theme, unit.Sp(13), state.Message)
 		style.Color = l.palette.text
@@ -1369,6 +1421,110 @@ func (l *launcher) emptyResults(gtx layout.Context, state presentation.State) la
 		style.Truncator = "…"
 		return style.Layout(gtx)
 	})
+}
+
+func (l *launcher) quickAnswer(gtx layout.Context, message string) layout.Dimensions {
+	if l.answerMessage != message {
+		l.answerMessage = message
+		l.answerSpans = parseBasicMarkdown(message)
+		l.answerURLs = l.answerURLs[:0]
+		l.answerLinks = [maxAnswerLinks]widget.Clickable{}
+		for index := range l.answerSpans {
+			if l.answerSpans[index].url == "" || len(l.answerURLs) == maxAnswerLinks {
+				continue
+			}
+			l.answerURLs = append(l.answerURLs, l.answerSpans[index].url)
+		}
+		l.pageList.Position = layout.Position{}
+	}
+	for index, url := range l.answerURLs {
+		for l.answerLinks[index].Clicked(gtx) {
+			go func(url string) {
+				if err := utils.OpenURI(url); err != nil {
+					log.Printf("failed to open answer link: %v", err)
+				}
+			}(url)
+		}
+	}
+
+	lines := l.answerLines(gtx)
+	return material.List(l.theme, &l.pageList).Layout(gtx, len(lines), func(gtx layout.Context, index int) layout.Dimensions {
+		line := lines[index]
+		return layout.Inset{Bottom: unit.Dp(5)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			children := make([]layout.FlexChild, 0, len(line))
+			for _, atom := range line {
+				atom := atom
+				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return l.answerAtom(gtx, atom)
+				}))
+			}
+			return layout.Flex{Alignment: layout.Middle}.Layout(gtx, children...)
+		})
+	})
+}
+
+func (l *launcher) answerLines(gtx layout.Context) [][]answerAtom {
+	var lines [][]answerAtom
+	var line []answerAtom
+	width := 0
+	linkIndex := 0
+	for _, span := range l.answerSpans {
+		if span.url != "" {
+			link := -1
+			if linkIndex < len(l.answerURLs) {
+				link = linkIndex
+			}
+			l.addAnswerAtom(gtx, &lines, &line, &width, answerAtom{text: span.text, span: span, link: link})
+			linkIndex++
+			continue
+		}
+		for _, text := range splitMarkdownText(span.text) {
+			if text == "\n" && len(line) > 0 {
+				lines = append(lines, line)
+				line, width = nil, 0
+				continue
+			}
+			l.addAnswerAtom(gtx, &lines, &line, &width, answerAtom{text: text, span: span, link: -1})
+		}
+	}
+	if len(line) > 0 {
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func (l *launcher) addAnswerAtom(gtx layout.Context, lines *[][]answerAtom, line *[]answerAtom, width *int, atom answerAtom) {
+	measure := gtx
+	measure.Constraints.Min.X = 0
+	measure.Constraints.Max.X = 1 << 20
+	recording := op.Record(gtx.Ops)
+	dimensions := l.answerAtom(measure, atom)
+	recording.Stop()
+	if *width > 0 && *width+dimensions.Size.X > gtx.Constraints.Max.X {
+		*lines = append(*lines, *line)
+		*line, *width = nil, 0
+	}
+	if *width == 0 && strings.TrimSpace(atom.text) == "" {
+		return
+	}
+	*line = append(*line, atom)
+	*width += dimensions.Size.X
+}
+
+func (l *launcher) answerAtom(gtx layout.Context, atom answerAtom) layout.Dimensions {
+	style := material.Label(l.theme, unit.Sp(13), atom.text)
+	style.Color = l.palette.text
+	if atom.span.bold {
+		style.Font.Weight = font.Bold
+	}
+	if atom.span.italic {
+		style.Font.Style = font.Italic
+	}
+	if atom.link >= 0 {
+		style.Color = l.palette.accent
+		return l.answerLinks[atom.link].Layout(gtx, style.Layout)
+	}
+	return style.Layout(gtx)
 }
 
 func (l *launcher) indexStatusLine(gtx layout.Context) layout.Dimensions {

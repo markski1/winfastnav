@@ -15,6 +15,14 @@ func TestCleanExecutablePathRemovesQuotedIconIndex(t *testing.T) {
 	}
 }
 
+func TestCleanExecutablePathRemovesCommandArguments(t *testing.T) {
+	path := cleanExecutablePath(`C:\Program Files\Example\example.exe --background`)
+	want := `c:\program files\example\example.exe`
+	if path != want {
+		t.Fatalf("cleanExecutablePath() = %q, want %q", path, want)
+	}
+}
+
 func TestHasApplicationMatchesNameOrPath(t *testing.T) {
 	resources := []g.Resource{{
 		Name:     "Example Launcher",

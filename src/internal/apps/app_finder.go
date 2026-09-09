@@ -10,11 +10,14 @@ import (
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"golang.org/x/sys/windows/registry"
 
 	g "winfastnav/internal/globals"
 )
 
 const appsFolderPrefix = `shell:AppsFolder\`
+
+const appPathsRegistryKey = `Software\Microsoft\Windows\CurrentVersion\App Paths`
 
 func GetInstalledApps() []g.Resource {
 	appListMu.RLock()
@@ -26,6 +29,7 @@ func GetInstalledApps() []g.Resource {
 	apps = append(apps, calculatorResource())
 	apps = scanAppsFolder(apps)
 	apps = scanStartMenu(apps)
+	apps = scanAppPaths(apps)
 	var cleanApps []g.Resource
 
 	for i, app := range apps {
@@ -58,6 +62,9 @@ func cleanExecutablePath(path string) string {
 		}
 	} else if i := strings.Index(path, ","); i != -1 {
 		path = path[:i]
+	}
+	if executableEnd := strings.Index(strings.ToLower(path), ".exe"); executableEnd >= 0 {
+		path = path[:executableEnd+len(".exe")]
 	}
 	return strings.ToLower(strings.Trim(strings.TrimSpace(path), `"`))
 }
@@ -255,6 +262,41 @@ func startMenuDirectories() []string {
 		filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
 		filepath.Join(os.Getenv("PROGRAMDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
 	}
+}
+
+func scanAppPaths(currentAppList []g.Resource) []g.Resource {
+	for _, root := range []registry.Key{registry.CURRENT_USER, registry.LOCAL_MACHINE} {
+		key, err := registry.OpenKey(root, appPathsRegistryKey, registry.READ)
+		if err != nil {
+			continue
+		}
+		names, err := key.ReadSubKeyNames(-1)
+		_ = key.Close()
+		if err != nil {
+			continue
+		}
+		for _, name := range names {
+			appKey, err := registry.OpenKey(root, appPathsRegistryKey+`\`+name, registry.READ)
+			if err != nil {
+				continue
+			}
+			path, _, err := appKey.GetStringValue("")
+			_ = appKey.Close()
+			if err != nil {
+				continue
+			}
+			path = cleanExecutablePath(path)
+			if !strings.HasSuffix(path, ".exe") {
+				continue
+			}
+			appName := strings.TrimSuffix(name, filepath.Ext(name))
+			if hasApplication(currentAppList, appName, path) {
+				continue
+			}
+			currentAppList = append(currentAppList, g.Resource{Name: appName, Filepath: path})
+		}
+	}
+	return currentAppList
 }
 
 func hasApplication(apps []g.Resource, name, path string) bool {
