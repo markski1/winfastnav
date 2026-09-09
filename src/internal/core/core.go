@@ -55,8 +55,8 @@ func HandleTextInputMode(query string, mode int) (retItems []globals.Resource, r
 		}
 		return withCalculation(results, calculation, calculated), nil
 
-	case globals.ModeAskGPT:
-		s := fmt.Sprintf("Quick GPT: %s", query)
+	case globals.ModeQuickAnswer:
+		s := fmt.Sprintf("Quick Answer: %s", query)
 		s = utils.WrapTextByWords(s, 64)
 		return nil, &s
 	}

@@ -3,6 +3,7 @@ package documents
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	g "winfastnav/internal/globals"
@@ -71,6 +72,24 @@ func TestDocumentSearchMatchesParentFolder(t *testing.T) {
 func TestDocumentExtensionMustMatchExactly(t *testing.T) {
 	if extension := normalizeDocumentExtension(".docx.bak"); extension != "" {
 		t.Fatalf("invalid extension normalized to %q", extension)
+	}
+}
+
+func TestParseIndexList(t *testing.T) {
+	values := ParseIndexList(" C:\\Docs;D:\\Projects\r\nE:\\Notes ")
+	if len(values) != 3 || values[0] != `C:\Docs` || values[1] != `D:\Projects` || values[2] != `E:\Notes` {
+		t.Fatalf("parsed index list = %#v", values)
+	}
+}
+
+func TestNormalizeRootsExpandsWindowsEnvironmentVariables(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("WINFASTNAV_TEST_ROOT", root)
+
+	config := normalizeIndexConfig(IndexConfig{Roots: []string{"%WINFASTNAV_TEST_ROOT%\\Documents"}})
+	want := filepath.Join(root, "Documents")
+	if len(config.Roots) != 1 || !strings.EqualFold(config.Roots[0], want) {
+		t.Fatalf("normalized roots = %#v, want %q", config.Roots, want)
 	}
 }
 

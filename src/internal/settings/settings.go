@@ -94,21 +94,31 @@ func writeSettings(s Settings) error {
 		return err
 	}
 
-	file, err := os.Create(path)
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".prefs-*.tmp")
 	if err != nil {
 		return err
 	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
 
-	enc := json.NewEncoder(file)
+	enc := json.NewEncoder(temporary)
 	enc.SetIndent("", "  ")
 	if err = enc.Encode(s); err != nil {
-		_ = file.Close()
+		_ = temporary.Close()
 		return err
 	}
-	if err = file.Close(); err != nil {
+	if err = temporary.Sync(); err != nil {
+		_ = temporary.Close()
 		return err
 	}
-	return nil
+	if err = temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
 }
 
 func SetSetting(key, value string) error {
@@ -135,8 +145,11 @@ func loadSettings() error {
 		return nil
 	}
 	loaded, err := readSettings()
-	if err == nil {
-		settings = loaded
+	if err != nil {
+		log.Printf("failed to read settings, starting with defaults: %v", err)
+		settings = Settings{}
+		return nil
 	}
+	settings = loaded
 	return err
 }

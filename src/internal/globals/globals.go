@@ -24,7 +24,7 @@ const (
 	ModeSearchProgram  = 10
 	ModeSearchInternet = 12
 
-	ModeAskGPT = 31
+	ModeQuickAnswer = 31
 )
 
 var (

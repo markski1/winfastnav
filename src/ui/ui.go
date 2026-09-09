@@ -35,6 +35,7 @@ import (
 	appicons "winfastnav/internal/icons"
 	"winfastnav/internal/presentation"
 	"winfastnav/internal/recent"
+	appsettings "winfastnav/internal/settings"
 	"winfastnav/internal/systemactions"
 	"winfastnav/internal/utils"
 	"winfastnav/internal/windowcontrol"
@@ -53,10 +54,14 @@ type launcher struct {
 	theme                                         *material.Theme
 	icons                                         *appicons.Cache
 	editor, settings, aliases                     widget.Editor
+	indexRoots, indexExclusions                   widget.Editor
 	list                                          widget.List
+	pageList                                      widget.List
 	results                                       [maxResults + 2]widget.Clickable
 	menu, back, help, settingsButton, about, quit widget.Clickable
 	startup, clear, confirm, cancel               widget.Clickable
+	clearSearch, themeToggle, densityToggle       widget.Clickable
+	reindex                                       widget.Clickable
 	mu                                            sync.RWMutex
 	items                                         []g.Resource
 	confirmClear                                  bool
@@ -65,7 +70,12 @@ type launcher struct {
 	centered                                      bool
 	focused                                       bool
 	windowInitialized                             bool
+	lightTheme                                    bool
+	compact                                       bool
+	palette                                       uiPalette
+	windowReady                                   atomic.Bool
 	refreshPending                                atomic.Bool
+	answerGeneration                              atomic.Uint64
 	pendingAction                                 g.Resource
 	searchMu                                      sync.Mutex
 	searchGeneration                              uint64
@@ -93,16 +103,98 @@ type searchResult struct {
 	message    string
 }
 
+type uiPalette struct {
+	window      color.NRGBA
+	surface     color.NRGBA
+	surfaceEdge color.NRGBA
+	input       color.NRGBA
+	row         color.NRGBA
+	selected    color.NRGBA
+	hover       color.NRGBA
+	text        color.NRGBA
+	secondary   color.NRGBA
+	muted       color.NRGBA
+	accent      color.NRGBA
+	button      color.NRGBA
+	buttonText  color.NRGBA
+	icon        color.NRGBA
+}
+
+func darkPalette() uiPalette {
+	return uiPalette{
+		window:      color.NRGBA{R: 0x0d, G: 0x0f, B: 0x14, A: 0xff},
+		surface:     color.NRGBA{R: 0x1b, G: 0x1e, B: 0x26, A: 0xff},
+		surfaceEdge: color.NRGBA{R: 0x3a, G: 0x40, B: 0x4e, A: 0xff},
+		input:       color.NRGBA{R: 0x28, G: 0x2d, B: 0x38, A: 0xff},
+		row:         color.NRGBA{R: 0x21, G: 0x24, B: 0x2c, A: 0xff},
+		selected:    color.NRGBA{R: 0x3d, G: 0x68, B: 0x96, A: 0xff},
+		hover:       color.NRGBA{R: 0x2d, G: 0x38, B: 0x4a, A: 0xff},
+		text:        color.NRGBA{R: 0xf5, G: 0xf7, B: 0xfa, A: 0xff},
+		secondary:   color.NRGBA{R: 0xb6, G: 0xbd, B: 0xc9, A: 0xff},
+		muted:       color.NRGBA{R: 0x8d, G: 0x96, B: 0xa5, A: 0xff},
+		accent:      color.NRGBA{R: 0x78, G: 0xb7, B: 0xff, A: 0xff},
+		button:      color.NRGBA{R: 0x36, G: 0x4f, B: 0x70, A: 0xff},
+		buttonText:  color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
+		icon:        color.NRGBA{R: 0x4d, G: 0x61, B: 0x7d, A: 0xff},
+	}
+}
+
+func lightPalette() uiPalette {
+	return uiPalette{
+		window:      color.NRGBA{R: 0xe9, G: 0xed, B: 0xf3, A: 0xff},
+		surface:     color.NRGBA{R: 0xfc, G: 0xfd, B: 0xff, A: 0xff},
+		surfaceEdge: color.NRGBA{R: 0xc8, G: 0xd0, B: 0xdc, A: 0xff},
+		input:       color.NRGBA{R: 0xf0, G: 0xf3, B: 0xf8, A: 0xff},
+		row:         color.NRGBA{R: 0xf6, G: 0xf8, B: 0xfb, A: 0xff},
+		selected:    color.NRGBA{R: 0xd4, G: 0xe8, B: 0xff, A: 0xff},
+		hover:       color.NRGBA{R: 0xe8, G: 0xf1, B: 0xfc, A: 0xff},
+		text:        color.NRGBA{R: 0x1c, G: 0x24, B: 0x30, A: 0xff},
+		secondary:   color.NRGBA{R: 0x5b, G: 0x66, B: 0x75, A: 0xff},
+		muted:       color.NRGBA{R: 0x7b, G: 0x86, B: 0x96, A: 0xff},
+		accent:      color.NRGBA{R: 0x2b, G: 0x6f, B: 0xb8, A: 0xff},
+		button:      color.NRGBA{R: 0x3d, G: 0x73, B: 0xae, A: 0xff},
+		buttonText:  color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
+		icon:        color.NRGBA{R: 0x6b, G: 0x91, B: 0xb8, A: 0xff},
+	}
+}
+
 func SetupUI() {
 	theme := material.NewTheme()
 	theme.TextSize = unit.Sp(12.35)
-	active = &launcher{controller: presentation.NewController(g.ModeSearchProgram), theme: theme, icons: appicons.NewCache(), list: widget.List{List: layout.List{Axis: layout.Vertical}}}
+	themeSetting, _ := appsettings.GetSetting("theme")
+	densitySetting, _ := appsettings.GetSetting("density")
+	active = &launcher{
+		controller: presentation.NewController(g.ModeSearchProgram),
+		theme:      theme,
+		icons:      appicons.NewCache(),
+		list:       widget.List{List: layout.List{Axis: layout.Vertical}},
+		pageList:   widget.List{List: layout.List{Axis: layout.Vertical}},
+		lightTheme: strings.EqualFold(themeSetting, "light"),
+		compact:    strings.EqualFold(densitySetting, "compact"),
+	}
+	active.icons.SetChangedHandler(active.invalidate)
+	active.applyPalette()
 	active.editor.SingleLine, active.editor.Submit = true, true
 	active.aliases.SingleLine = true
+	active.indexRoots.SingleLine, active.indexExclusions.SingleLine = true, true
 	active.window.Option(app.Title(g.AppName), app.Size(unit.Dp(580), unit.Dp(460)), app.MinSize(unit.Dp(580), unit.Dp(460)), app.MaxSize(unit.Dp(580), unit.Dp(460)), app.Decorated(false), app.TopMost(true))
 	active.windowControl = windowcontrol.New(g.AppName)
 	active.controller.Post(presentation.Command{Kind: presentation.CommandHide})
 	active.message(g.AppName + "\nMenu -> Help")
+}
+
+func (l *launcher) applyPalette() {
+	if l.lightTheme {
+		l.palette = lightPalette()
+	} else {
+		l.palette = darkPalette()
+	}
+	l.theme.Palette = material.Palette{
+		Fg:         l.palette.text,
+		Bg:         l.palette.surface,
+		ContrastBg: l.palette.accent,
+		ContrastFg: l.palette.buttonText,
+	}
 }
 
 func Run() {
@@ -122,6 +214,7 @@ func ShowWindow() {
 	}
 	if active.controller.Snapshot().Page == presentation.PageSettings {
 		core.UpdateAliasSetting(g.AliasString)
+		active.commitIndexSettings()
 	}
 	g.CurrentMode = g.ModeSearchProgram
 	active.clearItems()
@@ -132,9 +225,23 @@ func ShowWindow() {
 	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
 	active.query("")
 	active.message(g.AppName + "\nMenu -> Help")
-	_ = active.windowControl.ShowAndFocus()
+	active.showAndFocus()
 	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandFocusSearch})
-	active.window.Invalidate()
+	active.invalidate()
+}
+
+func (l *launcher) showAndFocus() {
+	if err := l.windowControl.ShowAndFocus(); err == nil {
+		return
+	}
+	time.AfterFunc(100*time.Millisecond, func() {
+		if !l.controller.Snapshot().Visible {
+			return
+		}
+		if err := l.windowControl.ShowAndFocus(); err != nil {
+			log.Printf("failed to show launcher: %v", err)
+		}
+	})
 }
 
 func ToggleWindow() {
@@ -152,6 +259,7 @@ func HideWindow() {
 	if active == nil {
 		return
 	}
+	active.answerGeneration.Add(1)
 	active.cancelSearch()
 	active.clearItems()
 	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetQuery})
@@ -168,7 +276,13 @@ func RefreshResults() {
 		return
 	}
 	active.refreshPending.Store(true)
-	active.window.Invalidate()
+	active.invalidate()
+}
+
+func (l *launcher) invalidate() {
+	if l.windowReady.Load() {
+		l.window.Invalidate()
+	}
 }
 
 func ShowAbout() {
@@ -180,7 +294,9 @@ func Quit() {
 	if active != nil {
 		if active.controller.Snapshot().Page == presentation.PageSettings {
 			core.UpdateAliasSetting(g.AliasString)
+			active.commitIndexSettings()
 		}
+		active.cancelSearch()
 		active.controller.Close()
 	}
 	systray.Quit()
@@ -215,6 +331,7 @@ func (l *launcher) run() error {
 			}
 		case app.FrameEvent:
 			gtx := app.NewContext(&l.ops, e)
+			l.windowReady.Store(true)
 			l.controller.SetInvalidator(l.window.Invalidate)
 			l.update(gtx)
 			l.layout(gtx)
@@ -338,8 +455,8 @@ func (l *launcher) key(gtx layout.Context, event key.Event) {
 }
 
 func (l *launcher) query(query string) {
-	if query == ":g" {
-		l.activateCommandMode(g.ModeAskGPT)
+	if query == ":a" {
+		l.activateCommandMode(g.ModeQuickAnswer)
 		return
 	}
 	if query == ":w" {
@@ -348,9 +465,9 @@ func (l *launcher) query(query string) {
 	}
 	mode := l.controller.Snapshot().Mode
 	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetQuery, Query: query})
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetLoading, Loading: true})
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
-	l.clearItems()
+	if mode == g.ModeQuickAnswer {
+		return
+	}
 	l.message("")
 	l.beginSearch(query, mode)
 }
@@ -469,8 +586,8 @@ func (l *launcher) submit(input string) {
 			l.mode(g.ModeSearchProgram)
 		case 'w':
 			l.mode(g.ModeSearchInternet)
-		case 'g':
-			l.mode(g.ModeAskGPT)
+		case 'a':
+			l.mode(g.ModeQuickAnswer)
 		case 'r':
 			l.message("Re-indexing programs and documents.")
 			go documents.SetupDocs()
@@ -493,11 +610,15 @@ func (l *launcher) submit(input string) {
 		}
 	}
 	switch g.CurrentMode {
-	case g.ModeAskGPT:
+	case g.ModeQuickAnswer:
+		generation := l.answerGeneration.Add(1)
 		l.controller.Post(presentation.Command{Kind: presentation.CommandSetLoading, Loading: true})
-		l.message("Please wait...")
+		l.message("Waiting for an answer...")
 		go func(p string) {
-			result := utils.MakeGPTReq(p)
+			result := utils.QuickAnswer(p)
+			if l.answerGeneration.Load() != generation {
+				return
+			}
 			l.controller.Post(presentation.Command{Kind: presentation.CommandSetLoading, Loading: false})
 			l.message(result)
 		}(input)
@@ -519,6 +640,7 @@ func (l *launcher) openWebSearch(query string) error {
 }
 
 func (l *launcher) mode(mode int) {
+	l.answerGeneration.Add(1)
 	g.CurrentMode = mode
 	l.clearItems()
 	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetMode, Mode: mode})
@@ -528,6 +650,7 @@ func (l *launcher) mode(mode int) {
 }
 
 func (l *launcher) activateCommandMode(mode int) {
+	l.answerGeneration.Add(1)
 	l.cancelSearch()
 	g.CurrentMode = mode
 	l.clearItems()
@@ -719,21 +842,64 @@ func (l *launcher) message(text string) {
 func (l *launcher) launcher() {
 	if l.controller.Snapshot().Page == presentation.PageSettings {
 		core.UpdateAliasSetting(l.aliases.Text())
+		l.commitIndexSettings()
 	}
 	l.confirmClear = false
 	l.pendingAction = g.Resource{}
 	l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageLauncher})
 }
 
+func (l *launcher) commitIndexSettings() {
+	changed, err := documents.ApplyConfig(documents.IndexConfig{
+		Roots:      documents.ParseIndexList(l.indexRoots.Text()),
+		Exclusions: documents.ParseIndexList(l.indexExclusions.Text()),
+	})
+	if err != nil {
+		l.settingsStatus = "Could not save index settings: " + err.Error()
+		return
+	}
+	if changed {
+		l.settingsStatus = "Index settings saved; indexing…"
+		go documents.SetupDocs()
+	}
+}
+
+func (l *launcher) toggleTheme() {
+	l.lightTheme = !l.lightTheme
+	l.applyPalette()
+	value := "dark"
+	if l.lightTheme {
+		value = "light"
+	}
+	if err := appsettings.SetSetting("theme", value); err != nil {
+		l.settingsStatus = "Theme changed, but could not be saved: " + err.Error()
+	} else {
+		l.settingsStatus = "Theme saved."
+	}
+}
+
+func (l *launcher) toggleDensity() {
+	l.compact = !l.compact
+	value := "comfortable"
+	if l.compact {
+		value = "compact"
+	}
+	if err := appsettings.SetSetting("density", value); err != nil {
+		l.settingsStatus = "Density changed, but could not be saved: " + err.Error()
+	} else {
+		l.settingsStatus = "Density saved."
+	}
+}
+
 func (l *launcher) layout(gtx layout.Context) layout.Dimensions {
-	paint.FillShape(gtx.Ops, color.NRGBA{R: 0x1a, G: 0x18, B: 0x18, A: 0xff}, clip.Rect{Max: gtx.Constraints.Max}.Op())
+	paint.FillShape(gtx.Ops, l.palette.window, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	s := l.controller.Snapshot()
 	return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		switch s.Page {
 		case presentation.PageMenu:
 			return l.menuPage(gtx)
 		case presentation.PageHelp:
-			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nENTER: Open or run\nCTRL + ENTER: Reveal in Explorer\nSHIFT + ENTER: Run as administrator\nCTRL + C: Copy selected result\nDELETE: Hide app\n\n:w Internet search\n:g Quick GPT\n:r Re-index\n:x Quit\n\nDocuments: pdf report, type:docx, folder:work\nAliases: configure alias=application in Settings\n\nTry (2+3)^2, 20% of 80, 10 km to mi, or 100 USD to EUR.")
+			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nENTER: Open or run\nCTRL + ENTER: Reveal in Explorer\nSHIFT + ENTER: Run as administrator\nCTRL + C: Copy selected result\nDELETE: Hide app\n\n:w Internet search\n:a Quick Answer\n:r Re-index\n:x Quit\n\nDocuments: pdf report, type:docx, folder:work\nAliases: configure alias=application in Settings\n\nTry (2+3)^2, 20% of 80, 10 km to mi, or 100 USD to EUR.")
 		case presentation.PageSettings:
 			return l.settingsPage(gtx)
 		case presentation.PageAbout:
@@ -750,20 +916,37 @@ func (l *launcher) launcherPage(gtx layout.Context, s presentation.State) layout
 	for l.menu.Clicked(gtx) {
 		l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageMenu})
 	}
+	for l.clearSearch.Clicked(gtx) {
+		l.editor.SetText("")
+		l.query("")
+	}
 	hint := placeholder(s.Mode)
 	editor := material.Editor(l.theme, &l.editor, hint)
 	editor.TextSize = unit.Sp(13)
-	editor.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-	editor.HintColor = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
+	editor.Color = l.palette.text
+	editor.HintColor = l.palette.muted
+	queryHasText := strings.TrimSpace(l.editor.Text()) != ""
+	resultGap := unit.Dp(10)
+	if l.compact {
+		resultGap = unit.Dp(6)
+	}
 	dimensions := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.input(gtx, editor.Layout) }),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if !queryHasText {
+						return layout.Dimensions{}
+					}
+					return l.button(gtx, &l.clearSearch, "×")
+				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.menu, "Menu") }),
 			)
 		}),
-		layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.indexStatusLine(gtx) }),
+		layout.Rigid(layout.Spacer{Height: resultGap}.Layout),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.resultsPage(gtx, s) }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.keyboardHint(gtx, s) }),
@@ -848,6 +1031,9 @@ func (l *launcher) menuPage(gtx layout.Context) layout.Dimensions {
 	for l.settingsButton.Clicked(gtx) {
 		l.settings.SetText(g.SearchString)
 		l.aliases.SetText(g.AliasString)
+		config := documents.Config()
+		l.indexRoots.SetText(strings.Join(config.Roots, "; "))
+		l.indexExclusions.SetText(strings.Join(config.Exclusions, "; "))
 		l.startupEnabled = utils.IsInStartup()
 		l.settingsStatus = "Changes are saved automatically."
 		l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageSettings})
@@ -868,8 +1054,19 @@ func (l *launcher) textPage(gtx layout.Context, title, text string) layout.Dimen
 	for l.back.Clicked(gtx) {
 		l.launcher()
 	}
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.heading(gtx, title) }), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.label(gtx, text) }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }))
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.heading(gtx, title) }),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return l.scrollPage(gtx, func(gtx layout.Context) layout.Dimensions { return l.label(gtx, text) })
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }),
+	)
 }
+
+func (l *launcher) scrollPage(gtx layout.Context, widgets ...layout.Widget) layout.Dimensions {
+	return material.List(l.theme, &l.pageList).LayoutWidgets(gtx, widgets...)
+}
+
 func (l *launcher) settingsPage(gtx layout.Context) layout.Dimensions {
 	for {
 		e, ok := l.settings.Update(gtx)
@@ -892,6 +1089,24 @@ func (l *launcher) settingsPage(gtx layout.Context) layout.Dimensions {
 			l.settingsStatus = "Aliases will be saved when you leave Settings."
 		}
 	}
+	for {
+		e, ok := l.indexRoots.Update(gtx)
+		if !ok {
+			break
+		}
+		if _, changed := e.(widget.ChangeEvent); changed {
+			l.settingsStatus = "Index settings will be saved when you leave Settings."
+		}
+	}
+	for {
+		e, ok := l.indexExclusions.Update(gtx)
+		if !ok {
+			break
+		}
+		if _, changed := e.(widget.ChangeEvent); changed {
+			l.settingsStatus = "Index settings will be saved when you leave Settings."
+		}
+	}
 	for l.startup.Clicked(gtx) {
 		if err := utils.AddToStartup(); err != nil {
 			l.settingsStatus = "Could not enable startup: " + err.Error()
@@ -911,56 +1126,102 @@ func (l *launcher) settingsPage(gtx layout.Context) layout.Dimensions {
 	for l.cancel.Clicked(gtx) {
 		l.confirmClear = false
 	}
+	for l.themeToggle.Clicked(gtx) {
+		l.toggleTheme()
+	}
+	for l.densityToggle.Clicked(gtx) {
+		l.toggleDensity()
+	}
+	for l.reindex.Clicked(gtx) {
+		l.commitIndexSettings()
+		l.settingsStatus = "Indexing documents…"
+		go documents.SetupDocs()
+	}
 	for l.back.Clicked(gtx) {
 		l.launcher()
 	}
 	editor := material.Editor(l.theme, &l.settings, "https://duckduckgo.com/?q=%s")
 	editor.TextSize = unit.Sp(13)
-	editor.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-	editor.HintColor = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
+	editor.Color = l.palette.text
+	editor.HintColor = l.palette.muted
 	aliasEditor := material.Editor(l.theme, &l.aliases, "vsc=Visual Studio Code; dc=Discord")
 	aliasEditor.TextSize = unit.Sp(13)
-	aliasEditor.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-	aliasEditor.HintColor = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.heading(gtx, "Settings") }),
-		layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "SEARCH") }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+	aliasEditor.Color = l.palette.text
+	aliasEditor.HintColor = l.palette.muted
+	rootsEditor := material.Editor(l.theme, &l.indexRoots, `%USERPROFILE%\Documents; D:\Projects`)
+	rootsEditor.TextSize = unit.Sp(13)
+	rootsEditor.Color = l.palette.text
+	rootsEditor.HintColor = l.palette.muted
+	exclusionsEditor := material.Editor(l.theme, &l.indexExclusions, `node_modules; venv; C:\Temp\Archive`)
+	exclusionsEditor.TextSize = unit.Sp(13)
+	exclusionsEditor.Color = l.palette.text
+	exclusionsEditor.HintColor = l.palette.muted
+	indexStatus := documents.Status()
+	themeLabel := "Theme: Dark (switch to light)"
+	if l.lightTheme {
+		themeLabel = "Theme: Light (switch to dark)"
+	}
+	densityLabel := "Density: Comfortable (switch to compact)"
+	if l.compact {
+		densityLabel = "Density: Compact (switch to comfortable)"
+	}
+	widgets := []layout.Widget{
+		func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "SEARCH") },
+		func(gtx layout.Context) layout.Dimensions {
 			return l.settingNote(gtx, "URL template. %s is replaced with the query.")
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.input(gtx, editor.Layout) }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.settingNote(gtx, l.settingsStatus) }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "APP ALIASES") }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		},
+		func(gtx layout.Context) layout.Dimensions { return l.input(gtx, editor.Layout) },
+		func(gtx layout.Context) layout.Dimensions { return l.settingNote(gtx, l.settingsStatus) },
+		func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) },
+		func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "APP ALIASES") },
+		func(gtx layout.Context) layout.Dimensions {
 			return l.settingNote(gtx, "Separate aliases with semicolons: alias=application name")
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.input(gtx, aliasEditor.Layout) }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "STARTUP") }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		},
+		func(gtx layout.Context) layout.Dimensions { return l.input(gtx, aliasEditor.Layout) },
+		func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) },
+		func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "INDEXING") },
+		func(gtx layout.Context) layout.Dimensions {
+			return l.settingNote(gtx, "Folders to search, separated by semicolons. Changes apply when you leave Settings.")
+		},
+		func(gtx layout.Context) layout.Dimensions { return l.input(gtx, rootsEditor.Layout) },
+		func(gtx layout.Context) layout.Dimensions {
+			return l.settingNote(gtx, "Excluded folder names or absolute paths, separated by semicolons.")
+		},
+		func(gtx layout.Context) layout.Dimensions { return l.input(gtx, exclusionsEditor.Layout) },
+		func(gtx layout.Context) layout.Dimensions { return l.indexStatusNote(gtx, indexStatus) },
+		func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.reindex, "Re-index now") },
+		func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) },
+		func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "APPEARANCE") },
+		func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.themeToggle, themeLabel) },
+		func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.densityToggle, densityLabel) },
+		func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) },
+		func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "STARTUP") },
+		func(gtx layout.Context) layout.Dimensions {
 			label := "Enable launch at sign-in"
 			if l.startupEnabled {
 				label = "Launch at sign-in: enabled"
 			}
 			return l.menuButton(gtx, &l.startup, label)
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "HIDDEN APPS") }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		},
+		func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) },
+		func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "HIDDEN APPS") },
+		func(gtx layout.Context) layout.Dimensions {
 			return l.settingNote(gtx, "Hidden apps are excluded from app search.")
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		},
+		func(gtx layout.Context) layout.Dimensions {
 			return l.menuButton(gtx, &l.clear, fmt.Sprintf("Restore hidden apps (%d)", len(g.ExecBlocklist)))
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		},
+		func(gtx layout.Context) layout.Dimensions {
 			if !l.confirmClear {
 				return layout.Dimensions{}
 			}
 			return layout.Flex{}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.confirm, "Restore apps") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.cancel, "Keep hidden") }))
-		}),
-		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }),
+		},
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.heading(gtx, "Settings") }),
+		layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.scrollPage(gtx, widgets...) }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }),
 	)
 }
@@ -995,11 +1256,15 @@ func (l *launcher) confirmationPage(gtx layout.Context) layout.Dimensions {
 }
 func (l *launcher) button(gtx layout.Context, c *widget.Clickable, text string) layout.Dimensions {
 	b := material.Button(l.theme, c, text)
-	b.Background = color.NRGBA{R: 0x46, G: 0x38, B: 0x38, A: 255}
-	b.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	b.Background = l.palette.button
+	b.Color = l.palette.buttonText
 	b.CornerRadius = 0
 	b.TextSize = unit.Sp(10.5)
-	b.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(8), Right: unit.Dp(8)}
+	vertical := unit.Dp(6)
+	if l.compact {
+		vertical = unit.Dp(4)
+	}
+	b.Inset = layout.Inset{Top: vertical, Bottom: vertical, Left: unit.Dp(9), Right: unit.Dp(9)}
 	return b.Layout(gtx)
 }
 
@@ -1012,28 +1277,32 @@ func (l *launcher) menuButton(gtx layout.Context, c *widget.Clickable, text stri
 func (l *launcher) resultButton(gtx layout.Context, c *widget.Clickable, row resultRow, selected bool) layout.Dimensions {
 	return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		background := color.NRGBA{R: 0x21, G: 0x1e, B: 0x1e, A: 0xff}
+		background := l.palette.row
 		if selected {
-			background = color.NRGBA{R: 0x64, G: 0x4c, B: 0x4c, A: 0xff}
+			background = l.palette.selected
 		} else if c.Hovered() {
-			background = color.NRGBA{R: 0x36, G: 0x2d, B: 0x2d, A: 0xff}
+			background = l.palette.hover
 		}
 		return layout.Background{}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			paint.FillShape(gtx.Ops, background, clip.Rect{Max: gtx.Constraints.Min}.Op())
 			return layout.Dimensions{Size: gtx.Constraints.Min}
 		}, func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			vertical := unit.Dp(8)
+			if l.compact {
+				vertical = unit.Dp(5)
+			}
+			return layout.Inset{Top: vertical, Bottom: vertical, Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.resultIcon(gtx, row) }),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(10)}.Layout),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return l.resultText(gtx, row.title, unit.Sp(13), color.NRGBA{R: 255, G: 255, B: 255, A: 255})
+								return l.resultText(gtx, row.title, unit.Sp(13), l.palette.text)
 							}),
 							layout.Rigid(layout.Spacer{Height: unit.Dp(2)}.Layout),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return l.resultText(gtx, row.detail, unit.Sp(10.5), color.NRGBA{R: 0xb8, G: 0xb2, B: 0xb2, A: 255})
+								return l.resultText(gtx, row.detail, unit.Sp(10.5), l.palette.secondary)
 							}),
 						)
 					}),
@@ -1051,13 +1320,13 @@ func (l *launcher) resultIcon(gtx layout.Context, row resultRow) layout.Dimensio
 			return widget.Image{Src: paint.NewImageOp(icon), Fit: widget.Contain}.Layout(gtx)
 		}
 	}
-	paint.FillShape(gtx.Ops, color.NRGBA{R: 0x58, G: 0x46, B: 0x46, A: 0xff}, clip.Rect{Max: gtx.Constraints.Min}.Op())
+	paint.FillShape(gtx.Ops, l.palette.icon, clip.Rect{Max: gtx.Constraints.Min}.Op())
 	letter := "•"
 	if row.kind != "" {
 		letter = strings.ToUpper(string([]rune(row.kind)[0]))
 	}
 	style := material.Label(l.theme, unit.Sp(12), letter)
-	style.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	style.Color = l.palette.buttonText
 	style.Alignment = text.Middle
 	return layout.Center.Layout(gtx, style.Layout)
 }
@@ -1073,15 +1342,19 @@ func (l *launcher) resultText(gtx layout.Context, value string, size unit.Sp, fo
 
 func (l *launcher) resultSection(gtx layout.Context, title string) layout.Dimensions {
 	style := material.Label(l.theme, unit.Sp(10.5), title)
-	style.Color = color.NRGBA{R: 0xd3, G: 0xaf, B: 0xaf, A: 255}
+	style.Color = l.palette.accent
 	return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(4)}.Layout(gtx, style.Layout)
 }
 
 func (l *launcher) emptyResults(gtx layout.Context, state presentation.State) layout.Dimensions {
 	if state.Loading {
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			style := material.Label(l.theme, unit.Sp(13), "Searching…")
-			style.Color = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 255}
+			message := state.Message
+			if message == "" {
+				message = "Working…"
+			}
+			style := material.Label(l.theme, unit.Sp(13), message)
+			style.Color = l.palette.text
 			return style.Layout(gtx)
 		})
 	}
@@ -1090,12 +1363,66 @@ func (l *launcher) emptyResults(gtx layout.Context, state presentation.State) la
 	}
 	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		style := material.Label(l.theme, unit.Sp(13), state.Message)
-		style.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+		style.Color = l.palette.text
 		style.Alignment = text.Middle
 		style.MaxLines = 3
 		style.Truncator = "…"
 		return style.Layout(gtx)
 	})
+}
+
+func (l *launcher) indexStatusLine(gtx layout.Context) layout.Dimensions {
+	documentStatus := documents.Status()
+	appStatus := apps.Status()
+	if documentStatus.Status == documents.IndexStatusReady && appStatus.Phase == apps.CatalogPhaseReady {
+		return layout.Dimensions{}
+	}
+	var messages []string
+	if documentStatus.Status != documents.IndexStatusReady {
+		messages = append(messages, l.indexStatusText(documentStatus))
+	}
+	if appStatus.Phase != apps.CatalogPhaseReady {
+		messages = append(messages, l.catalogStatusText(appStatus))
+	}
+	return l.settingNote(gtx, strings.Join(messages, "   •   "))
+}
+
+func (l *launcher) indexStatusNote(gtx layout.Context, status documents.IndexSnapshot) layout.Dimensions {
+	return l.settingNote(gtx, l.indexStatusText(status))
+}
+
+func (l *launcher) indexStatusText(status documents.IndexSnapshot) string {
+	textValue := "Documents: waiting for the first index"
+	switch status.Status {
+	case documents.IndexStatusIndexing:
+		textValue = fmt.Sprintf("Indexing documents… %d found", status.ItemCount)
+	case documents.IndexStatusStale:
+		textValue = "Document index is out of date"
+	case documents.IndexStatusError:
+		textValue = "Document index error"
+		if status.Error != "" {
+			textValue += ": " + strings.Split(status.Error, "\n")[0]
+		}
+	case documents.IndexStatusReady:
+		textValue = fmt.Sprintf("Documents ready: %d", status.ItemCount)
+	}
+	return textValue
+}
+
+func (l *launcher) catalogStatusText(status apps.CatalogSnapshot) string {
+	textValue := "Applications: waiting for the first index"
+	switch status.Phase {
+	case apps.CatalogPhaseIndexing:
+		textValue = fmt.Sprintf("Indexing applications… %d found", status.ItemCount)
+	case apps.CatalogPhaseError:
+		textValue = "Application index error"
+		if status.Error != "" {
+			textValue += ": " + strings.Split(status.Error, "\n")[0]
+		}
+	case apps.CatalogPhaseReady:
+		textValue = fmt.Sprintf("Applications ready: %d", status.ItemCount)
+	}
+	return textValue
 }
 
 func (l *launcher) keyboardHint(gtx layout.Context, state presentation.State) layout.Dimensions {
@@ -1117,7 +1444,7 @@ func (l *launcher) keyboardHint(gtx layout.Context, state presentation.State) la
 	}
 	return layout.Inset{Top: unit.Dp(7), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		style := material.Label(l.theme, unit.Sp(10), hint)
-		style.Color = color.NRGBA{R: 0xa8, G: 0xa2, B: 0xa2, A: 255}
+		style.Color = l.palette.muted
 		style.MaxLines = 1
 		style.Truncator = "…"
 		return style.Layout(gtx)
@@ -1126,7 +1453,7 @@ func (l *launcher) keyboardHint(gtx layout.Context, state presentation.State) la
 
 func (l *launcher) input(gtx layout.Context, content layout.Widget) layout.Dimensions {
 	return layout.Background{}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		paint.FillShape(gtx.Ops, color.NRGBA{R: 0x2b, G: 0x2b, B: 0x2b, A: 0xff}, clip.Rect{Max: gtx.Constraints.Min}.Op())
+		paint.FillShape(gtx.Ops, l.palette.input, clip.Rect{Max: gtx.Constraints.Min}.Op())
 		return layout.Dimensions{Size: gtx.Constraints.Min}
 	}, func(gtx layout.Context) layout.Dimensions {
 		return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, content)
@@ -1135,7 +1462,7 @@ func (l *launcher) input(gtx layout.Context, content layout.Widget) layout.Dimen
 
 func (l *launcher) section(gtx layout.Context, text string) layout.Dimensions {
 	style := material.Body1(l.theme, text)
-	style.Color = color.NRGBA{R: 0xc8, G: 0xc8, B: 0xc8, A: 0xff}
+	style.Color = l.palette.secondary
 	return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(3)}.Layout(gtx, style.Layout)
 }
 
@@ -1144,7 +1471,7 @@ func (l *launcher) settingNote(gtx layout.Context, value string) layout.Dimensio
 		return layout.Dimensions{}
 	}
 	style := material.Label(l.theme, unit.Sp(10.5), value)
-	style.Color = color.NRGBA{R: 0xb8, G: 0xb2, B: 0xb2, A: 255}
+	style.Color = l.palette.secondary
 	style.MaxLines = 1
 	style.Truncator = "…"
 	return layout.Inset{Bottom: unit.Dp(4)}.Layout(gtx, style.Layout)
@@ -1152,25 +1479,25 @@ func (l *launcher) settingNote(gtx layout.Context, value string) layout.Dimensio
 
 func (l *launcher) separator(gtx layout.Context) layout.Dimensions {
 	size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(1)))
-	paint.FillShape(gtx.Ops, color.NRGBA{R: 0x4a, G: 0x4a, B: 0x4a, A: 0xff}, clip.Rect{Max: size}.Op())
+	paint.FillShape(gtx.Ops, l.palette.surfaceEdge, clip.Rect{Max: size}.Op())
 	return layout.Dimensions{Size: size}
 }
 func (l *launcher) label(gtx layout.Context, text string) layout.Dimensions {
 	s := material.Body1(l.theme, text)
-	s.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	s.Color = l.palette.text
 	return s.Layout(gtx)
 }
 func (l *launcher) heading(gtx layout.Context, text string) layout.Dimensions {
 	s := material.H6(l.theme, text)
-	s.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	s.Color = l.palette.text
 	return s.Layout(gtx)
 }
 func placeholder(mode int) string {
 	switch mode {
 	case g.ModeSearchInternet:
 		return "Internet search..."
-	case g.ModeAskGPT:
-		return "Quick GPT..."
+	case g.ModeQuickAnswer:
+		return "Quick Answer..."
 	default:
 		return "Search apps and documents..."
 	}

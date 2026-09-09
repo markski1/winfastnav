@@ -21,9 +21,26 @@ const (
 	catalogPoll     = 2 * time.Minute
 )
 
+type CatalogPhase string
+
+const (
+	CatalogPhaseNotReady CatalogPhase = "not_ready"
+	CatalogPhaseIndexing CatalogPhase = "indexing"
+	CatalogPhaseReady    CatalogPhase = "ready"
+	CatalogPhaseError    CatalogPhase = "error"
+)
+
+type CatalogSnapshot struct {
+	Phase       CatalogPhase
+	ItemCount   int
+	LastIndexed time.Time
+	Error       string
+}
+
 type catalogFile struct {
 	Version     int          `json:"version"`
 	Fingerprint uint64       `json:"fingerprint"`
+	IndexedAt   time.Time    `json:"indexed_at"`
 	Apps        []g.Resource `json:"apps"`
 }
 
@@ -32,6 +49,9 @@ var (
 	refreshMu          sync.Mutex
 	catalogFingerprint uint64
 	catalogChanged     func()
+	catalogStatusMu    sync.RWMutex
+	catalogStatusHook  func(CatalogSnapshot)
+	catalogState       = CatalogSnapshot{Phase: CatalogPhaseNotReady}
 )
 
 func SetCatalogChangedHandler(handler func()) {
@@ -40,7 +60,20 @@ func SetCatalogChangedHandler(handler func()) {
 	catalogMu.Unlock()
 }
 
+func SetStatusChangedHandler(handler func(CatalogSnapshot)) {
+	catalogStatusMu.Lock()
+	catalogStatusHook = handler
+	catalogStatusMu.Unlock()
+}
+
+func Status() CatalogSnapshot {
+	catalogStatusMu.RLock()
+	defer catalogStatusMu.RUnlock()
+	return catalogState
+}
+
 func LoadCatalog() {
+	setCatalogStatus(CatalogPhaseIndexing, catalogItemCount(), time.Time{}, nil)
 	path, err := catalogPath()
 	if err != nil {
 		seedCatalog()
@@ -63,6 +96,11 @@ func LoadCatalog() {
 	appListMu.Lock()
 	g.AppList = apps
 	appListMu.Unlock()
+	indexedAt := cached.IndexedAt
+	if indexedAt.IsZero() {
+		indexedAt = time.Now()
+	}
+	setCatalogStatus(CatalogPhaseReady, len(apps), indexedAt, nil)
 	catalogMu.Lock()
 	catalogFingerprint = cached.Fingerprint
 	catalogMu.Unlock()
@@ -90,6 +128,7 @@ func refreshCatalogIfChanged() {
 func refreshCatalog(fingerprint uint64) {
 	refreshMu.Lock()
 	defer refreshMu.Unlock()
+	setCatalogStatus(CatalogPhaseIndexing, catalogItemCount(), time.Time{}, nil)
 	log.Printf("Indexing Windows apps")
 	apps := GetInstalledApps()
 	prepareResources(apps)
@@ -102,8 +141,12 @@ func refreshCatalog(fingerprint uint64) {
 	catalogMu.Lock()
 	catalogFingerprint = fingerprint
 	catalogMu.Unlock()
-	if err := saveCatalog(catalogFile{Version: catalogVersion, Fingerprint: fingerprint, Apps: apps}); err != nil {
+	indexedAt := time.Now()
+	if err := saveCatalog(catalogFile{Version: catalogVersion, Fingerprint: fingerprint, IndexedAt: indexedAt, Apps: apps}); err != nil {
 		log.Printf("failed to save app catalog: %v", err)
+		setCatalogStatus(CatalogPhaseError, len(apps), indexedAt, err)
+	} else {
+		setCatalogStatus(CatalogPhaseReady, len(apps), indexedAt, nil)
 	}
 	if changed {
 		catalogMu.Lock()
@@ -122,6 +165,27 @@ func seedCatalog() {
 	appListMu.Lock()
 	g.AppList = apps
 	appListMu.Unlock()
+	setCatalogStatus(CatalogPhaseReady, len(apps), time.Now(), nil)
+}
+
+func catalogItemCount() int {
+	appListMu.RLock()
+	defer appListMu.RUnlock()
+	return len(g.AppList)
+}
+
+func setCatalogStatus(phase CatalogPhase, itemCount int, indexedAt time.Time, statusErr error) {
+	snapshot := CatalogSnapshot{Phase: phase, ItemCount: itemCount, LastIndexed: indexedAt}
+	if statusErr != nil {
+		snapshot.Error = statusErr.Error()
+	}
+	catalogStatusMu.Lock()
+	catalogState = snapshot
+	handler := catalogStatusHook
+	catalogStatusMu.Unlock()
+	if handler != nil {
+		handler(snapshot)
+	}
 }
 
 func filterCachedApps(apps []g.Resource) []g.Resource {
@@ -139,19 +203,32 @@ func saveCatalog(catalog catalogFile) error {
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err = os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	file, err := os.Create(path)
+	temporary, err := os.CreateTemp(dir, ".apps-*.tmp")
 	if err != nil {
 		return err
 	}
-	encoder := json.NewEncoder(file)
-	err = encoder.Encode(catalog)
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
 	}
-	return err
+	if err := json.NewEncoder(temporary).Encode(catalog); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
 }
 
 func catalogPath() (string, error) {

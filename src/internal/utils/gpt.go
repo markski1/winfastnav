@@ -1,15 +1,41 @@
 package utils
 
 import (
-	"net/url"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
 )
 
-func MakeGPTReq(prompt string) string {
-	data, err := HttpGet("https://markski.ar/gpt-req.php?prompt=" + url.QueryEscape(prompt))
+var quickAnswerURL = "https://mmip-be.markski.ar/freefastnav"
+
+func QuickAnswer(question string) string {
+	req, err := http.NewRequest(http.MethodPost, quickAnswerURL, strings.NewReader(question))
+	if err != nil {
+		return "Sorry, Quick Answer is unavailable."
+	}
+	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+
+	resp, err := httpClient.Do(req)
 
 	if err != nil {
-		return "Sorry, there was an error making the request."
+		return "Sorry, Quick Answer is unavailable."
 	}
+	defer resp.Body.Close()
 
-	return WrapTextByWords(data, 64)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxHTTPResponseSize+1))
+	if err != nil {
+		return "Sorry, Quick Answer returned an unreadable response."
+	}
+	if len(body) > maxHTTPResponseSize {
+		return "Sorry, Quick Answer returned a response that is too large."
+	}
+	answer := strings.TrimSpace(string(body))
+	if answer != "" {
+		return answer
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Sprintf("Quick Answer request failed: %s", resp.Status)
+	}
+	return "Quick Answer returned an empty response."
 }

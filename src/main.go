@@ -57,13 +57,16 @@ func main() {
 	singleInstance = guard
 
 	settings.SetupSettings()
+	documents.LoadConfigFromSettings()
 	recent.Load()
 	apps.SetAliases(globals.AliasString)
 	apps.LoadCatalog()
 	utils.LoadCurrencyRates()
 	ui.SetupUI()
 	apps.SetCatalogChangedHandler(ui.RefreshResults)
+	apps.SetStatusChangedHandler(func(apps.CatalogSnapshot) { ui.RefreshResults() })
 	documents.SetChangedHandler(ui.RefreshResults)
+	documents.SetStatusChangedHandler(func(documents.IndexSnapshot) { ui.RefreshResults() })
 	go documents.SetupDocs()
 	go apps.MonitorCatalog()
 	go func() {
