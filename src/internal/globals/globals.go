@@ -10,6 +10,7 @@ type Resource struct {
 	Computed   bool
 	Document   bool
 	WebSearch  string         `json:"-"`
+	Assistant  string         `json:"-"`
 	Command    *SystemCommand `json:"-"`
 	SearchName string         `json:"-"`
 	SearchPath string         `json:"-"`
@@ -28,11 +29,10 @@ const (
 )
 
 var (
-	AppName       = "winfastnav v0.6"
+	AppName       = "winfastnav v0.7"
 	AppList       []Resource
 	ExecBlocklist []string
 	SearchString  string
-	AliasString   string
 
 	CurrentMode int = ModeSearchProgram
 

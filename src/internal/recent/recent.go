@@ -284,13 +284,6 @@ func rank(resources []globals.Resource) []globals.Resource {
 	return resources
 }
 
-func Paths() []string {
-	mu.RLock()
-	result := append([]string(nil), entries...)
-	mu.RUnlock()
-	return result
-}
-
 func Only(resources []globals.Resource) []globals.Resource {
 	mu.RLock()
 	order := make(map[string]int, len(entries))

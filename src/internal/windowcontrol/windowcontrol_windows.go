@@ -37,8 +37,10 @@ var (
 	procShowWindow          = user32.NewProc("ShowWindow")
 	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
 	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
+	procGetCursorPos        = user32.NewProc("GetCursorPos")
 	procGetWindowRect       = user32.NewProc("GetWindowRect")
 	procMonitorFromWindow   = user32.NewProc("MonitorFromWindow")
+	procMonitorFromPoint    = user32.NewProc("MonitorFromPoint")
 	procGetMonitorInfo      = user32.NewProc("GetMonitorInfoW")
 	procSetWindowPos        = user32.NewProc("SetWindowPos")
 	procGetWindowLongPtr    = user32.NewProc("GetWindowLongPtrW")
@@ -47,6 +49,10 @@ var (
 
 type rect struct {
 	left, top, right, bottom int32
+}
+
+type point struct {
+	x, y int32
 }
 
 type monitorInfo struct {
@@ -157,13 +163,15 @@ func ShowExistingAndFocus(title string) (bool, error) {
 		return false, nil
 	}
 
+	controller := &Controller{title: title, handle: found}
+	_ = controller.CenterOnForegroundMonitor()
 	procShowWindow.Call(uintptr(found), swRestore)
 	procSetForegroundWindow.Call(uintptr(found))
 	return true, nil
 }
 
-// CenterOnForegroundMonitor moves the launcher to the work area of the monitor
-// that was active before the launcher was shown.
+// CenterOnForegroundMonitor moves the launcher to the monitor with the focused
+// window, or the mouse pointer when the launcher already has focus.
 func (c *Controller) CenterOnForegroundMonitor() error {
 	if err := c.Bind(); err != nil {
 		return err
@@ -184,10 +192,19 @@ func (c *Controller) CenterOnForegroundMonitor() error {
 	}
 
 	foreground, _, _ := procGetForegroundWindow.Call()
-	if foreground == 0 {
-		foreground = uintptr(handle)
+	var monitor uintptr
+	if foreground != 0 && foreground != uintptr(handle) {
+		monitor, _, _ = procMonitorFromWindow.Call(foreground, monitorDefaultToNearest)
+	} else {
+		var cursor point
+		if result, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&cursor))); result != 0 {
+			packed := uintptr(uint32(cursor.x)) | uintptr(uint32(cursor.y))<<32
+			monitor, _, _ = procMonitorFromPoint.Call(packed, monitorDefaultToNearest)
+		}
 	}
-	monitor, _, _ := procMonitorFromWindow.Call(foreground, monitorDefaultToNearest)
+	if monitor == 0 {
+		monitor, _, _ = procMonitorFromWindow.Call(uintptr(handle), monitorDefaultToNearest)
+	}
 	if monitor == 0 {
 		return nil
 	}

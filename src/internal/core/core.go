@@ -26,7 +26,7 @@ func HandleTextInputMode(query string, mode int) (retItems []globals.Resource, r
 	if len(query) == 0 {
 		switch mode {
 		case globals.ModeSearchProgram:
-			return combineResults(apps.RecentApplications(), nil, documents.RecentDocuments()), nil
+			return apps.RecentApplications(), nil
 		}
 		return nil, nil
 	}
@@ -51,7 +51,10 @@ func HandleTextInputMode(query string, mode int) (retItems []globals.Resource, r
 		documentResults := documents.FilterDocumentsByName(query)
 		results := combineResults(appResults, systemResults, documentResults)
 		if len(results) == 0 && !calculated {
-			results = []globals.Resource{{Name: "Search the web for: " + query, WebSearch: query}}
+			results = []globals.Resource{
+				{Name: "Ask the assistant: " + query, Assistant: query},
+				{Name: "Search the web for: " + query, WebSearch: query},
+			}
 		}
 		return withCalculation(results, calculation, calculated), nil
 
@@ -118,10 +121,4 @@ func combineResults(appResults, systemResults, documentResults []globals.Resourc
 func UpdateSearchSetting(s string) {
 	globals.SearchString = s
 	_ = settings.SetSetting("searchstring", s)
-}
-
-func UpdateAliasSetting(value string) {
-	globals.AliasString = value
-	apps.SetAliases(value)
-	_ = settings.SetSetting("aliases", value)
 }

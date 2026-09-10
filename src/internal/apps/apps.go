@@ -20,37 +20,10 @@ func SetupApps() {
 }
 
 func FindAppResults(needle string) []g.Resource {
-	target := aliasTarget(needle)
 	appListMu.RLock()
 	results := recent.MatchAndRankLimit(g.AppList, needle, 30)
-	if target != "" {
-		preferred := recent.MatchAndRankLimit(g.AppList, target, 30)
-		results = mergePreferred(preferred, results, 30)
-	}
 	appListMu.RUnlock()
 	return results
-}
-
-func mergePreferred(preferred, remaining []g.Resource, limit int) []g.Resource {
-	merged := make([]g.Resource, 0, min(len(preferred)+len(remaining), limit))
-	for _, group := range [][]g.Resource{preferred, remaining} {
-		for _, resource := range group {
-			duplicate := false
-			for _, existing := range merged {
-				if strings.EqualFold(existing.Filepath, resource.Filepath) {
-					duplicate = true
-					break
-				}
-			}
-			if !duplicate {
-				merged = append(merged, resource)
-				if len(merged) == limit {
-					return merged
-				}
-			}
-		}
-	}
-	return merged
 }
 
 func RecentApplications() []g.Resource {

@@ -9,7 +9,6 @@ import (
 	"golang.org/x/sys/windows"
 
 	g "winfastnav/internal/globals"
-	"winfastnav/internal/recent"
 )
 
 const (
@@ -54,7 +53,10 @@ func Find(query string) []g.Resource {
 			matches = append(matches, item)
 		}
 	}
-	return recent.MatchAndRankLimit(matches, query, maxResults)
+	if len(matches) > maxResults {
+		return matches[:maxResults]
+	}
+	return matches
 }
 
 func RequiresConfirmation(action string) bool {

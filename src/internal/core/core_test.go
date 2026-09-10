@@ -57,7 +57,7 @@ func TestWebSearchFallbackAppearsWhenNoProgramMatches(t *testing.T) {
 	if message != nil {
 		t.Fatalf("unexpected message: %q", *message)
 	}
-	if len(results) != 1 || results[0].WebSearch == "" {
+	if len(results) != 2 || results[0].Assistant == "" || results[1].WebSearch == "" {
 		t.Fatalf("fallback result = %#v", results)
 	}
 }

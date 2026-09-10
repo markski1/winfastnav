@@ -3,27 +3,45 @@ package apps
 import (
 	"encoding/json"
 	"log"
+	"sort"
+	"strings"
 	g "winfastnav/internal/globals"
 	"winfastnav/internal/settings"
 )
 
-func UnblockAllApplications() {
+func BlockedApplications() []string {
+	appListMu.RLock()
+	blocklist := append([]string(nil), g.ExecBlocklist...)
+	appListMu.RUnlock()
+	sort.Strings(blocklist)
+	return blocklist
+}
+
+func UnblockApplication(path string) error {
 	appListMu.Lock()
-	g.ExecBlocklist = nil
+	blocklist := g.ExecBlocklist[:0]
+	for _, blockedPath := range g.ExecBlocklist {
+		if !strings.EqualFold(blockedPath, path) {
+			blocklist = append(blocklist, blockedPath)
+		}
+	}
+	g.ExecBlocklist = blocklist
+	blocklist = append([]string(nil), g.ExecBlocklist...)
 	appListMu.Unlock()
 
-	jsonData, err := json.Marshal([]string{})
-	if err != nil {
-		log.Printf("Error encoding list to JSON: %v", err)
-		return
+	if err := saveBlocklist(blocklist); err != nil {
+		return err
 	}
-	err = settings.SetSetting("blocklist", string(jsonData))
-	if err != nil {
-		log.Printf("Error saving settings: %v", err)
-		return
-	}
-
 	go SetupApps()
+	return nil
+}
+
+func saveBlocklist(blocklist []string) error {
+	jsonData, err := json.Marshal(blocklist)
+	if err != nil {
+		return err
+	}
+	return settings.SetSetting("blocklist", string(jsonData))
 }
 
 func BlockApplication(application g.Resource) {
@@ -39,14 +57,7 @@ func BlockApplication(application g.Resource) {
 	blocklist := append([]string(nil), g.ExecBlocklist...)
 	appListMu.Unlock()
 
-	jsonData, err := json.Marshal(blocklist)
-	if err != nil {
-		log.Printf("Error encoding list to JSON: %v", err)
-		return
-	}
-	err = settings.SetSetting("blocklist", string(jsonData))
-	if err != nil {
+	if err := saveBlocklist(blocklist); err != nil {
 		log.Printf("Error saving settings: %v", err)
-		return
 	}
 }

@@ -55,11 +55,11 @@ func main() {
 		return
 	}
 	singleInstance = guard
+	defer onExit()
 
 	settings.SetupSettings()
 	documents.LoadConfigFromSettings()
 	recent.Load()
-	apps.SetAliases(globals.AliasString)
 	apps.LoadCatalog()
 	utils.LoadCurrencyRates()
 	ui.SetupUI()
@@ -76,7 +76,6 @@ func main() {
 	}()
 	go listenHotkeys()
 	ui.Run()
-	setupTray()
 }
 
 func listenHotkeys() {

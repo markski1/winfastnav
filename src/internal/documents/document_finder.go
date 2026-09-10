@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 	g "winfastnav/internal/globals"
-	"winfastnav/internal/recent"
 	"winfastnav/internal/settings"
 )
 
@@ -468,8 +467,7 @@ func isHiddenDir(info os.FileInfo) bool {
 
 func FilterDocumentsByName(namePattern string) []g.Resource {
 	query := parseDocumentQuery(namePattern)
-	recentPaths := recent.Paths()
-	collector := newDocumentCollector(30, recentPaths)
+	collector := newDocumentCollector(30)
 
 	documentCacheMu.RLock()
 	defer documentCacheMu.RUnlock()
@@ -508,47 +506,25 @@ type rankedDocument struct {
 }
 
 type documentCollector struct {
-	limit       int
-	recentPaths []string
-	recent      []rankedDocument
-	ordinary    []g.Resource
+	limit int
+	items []g.Resource
 }
 
-func newDocumentCollector(limit int, recentPaths []string) documentCollector {
+func newDocumentCollector(limit int) documentCollector {
 	return documentCollector{
-		limit:       limit,
-		recentPaths: recentPaths,
-		recent:      make([]rankedDocument, 0, len(recentPaths)),
-		ordinary:    make([]g.Resource, 0, limit),
+		limit: limit,
+		items: make([]g.Resource, 0, limit),
 	}
 }
 
 func (collector *documentCollector) add(resource g.Resource) {
-	for order, path := range collector.recentPaths {
-		if strings.EqualFold(path, resource.Filepath) {
-			collector.recent = append(collector.recent, rankedDocument{resource: resource, order: order})
-			return
-		}
-	}
-	if len(collector.ordinary) < collector.limit {
-		collector.ordinary = append(collector.ordinary, resource)
+	if len(collector.items) < collector.limit {
+		collector.items = append(collector.items, resource)
 	}
 }
 
 func (collector *documentCollector) results() []g.Resource {
-	sort.Slice(collector.recent, func(i, j int) bool { return collector.recent[i].order < collector.recent[j].order })
-	result := make([]g.Resource, 0, collector.limit)
-	for _, document := range collector.recent {
-		result = append(result, document.resource)
-		if len(result) == collector.limit {
-			return result
-		}
-	}
-	remaining := collector.limit - len(result)
-	if remaining > len(collector.ordinary) {
-		remaining = len(collector.ordinary)
-	}
-	return append(result, collector.ordinary[:remaining]...)
+	return collector.items
 }
 
 type documentQuery struct {
@@ -585,28 +561,10 @@ func normalizeDocumentExtension(value string) string {
 	}
 }
 
-func RecentDocuments() []g.Resource {
-	documentCacheMu.RLock()
-	resources := append([]g.Resource(nil), DocumentCache...)
-	documentCacheMu.RUnlock()
-	return limitDocuments(recent.Only(resources))
-}
-
-func limitDocuments(resources []g.Resource) []g.Resource {
-	if len(resources) > 30 {
-		return resources[:30]
-	}
-	return resources
-}
-
 func OpenFile(path string) error {
 	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow: true,
 	}
-	err := cmd.Start()
-	if err == nil {
-		recent.Record(path)
-	}
-	return err
+	return cmd.Start()
 }

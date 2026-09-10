@@ -39,7 +39,6 @@ func SetupSettings() {
 			log.Printf("Error setting searchstring: %v", err)
 		}
 	}
-	g.AliasString, _ = GetSetting("aliases")
 }
 
 func getSettingsFilePath() (string, error) {

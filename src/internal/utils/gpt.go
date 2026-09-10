@@ -31,11 +31,14 @@ func QuickAnswer(question string) string {
 		return "Sorry, Quick Answer returned a response that is too large."
 	}
 	answer := strings.TrimSpace(string(body))
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		if answer != "" {
+			return answer
+		}
+		return fmt.Sprintf("Quick Answer request failed: %s", resp.Status)
+	}
 	if answer != "" {
 		return answer
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Sprintf("Quick Answer request failed: %s", resp.Status)
 	}
 	return "Quick Answer returned an empty response."
 }

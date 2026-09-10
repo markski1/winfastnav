@@ -15,7 +15,7 @@ import (
 
 const maxHTTPResponseSize = 1 << 20
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = &http.Client{Timeout: 15 * time.Second}
 
 func HttpGet(url string) (string, error) {
 	resp, err := httpClient.Get(url)

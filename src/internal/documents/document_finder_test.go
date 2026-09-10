@@ -93,13 +93,13 @@ func TestNormalizeRootsExpandsWindowsEnvironmentVariables(t *testing.T) {
 	}
 }
 
-func TestDocumentCollectorPromotesRecentMatchBeyondLimit(t *testing.T) {
-	collector := newDocumentCollector(2, []string{`C:\docs\recent.pdf`})
+func TestDocumentCollectorKeepsFirstMatches(t *testing.T) {
+	collector := newDocumentCollector(2)
 	collector.add(g.Resource{Name: "First", Filepath: `C:\docs\first.pdf`})
 	collector.add(g.Resource{Name: "Second", Filepath: `C:\docs\second.pdf`})
 	collector.add(g.Resource{Name: "Recent", Filepath: `C:\docs\recent.pdf`})
 	results := collector.results()
-	if len(results) != 2 || results[0].Name != "Recent" || results[1].Name != "First" {
+	if len(results) != 2 || results[0].Name != "First" || results[1].Name != "Second" {
 		t.Fatalf("collected documents = %#v", results)
 	}
 }
