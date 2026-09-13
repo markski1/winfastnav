@@ -2,20 +2,34 @@ package utils
 
 import (
 	"fmt"
-	"golang.org/x/sys/windows/registry"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 const maxHTTPResponseSize = 1 << 20
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
+
+var (
+	shell32                    = windows.NewLazySystemDLL("shell32.dll")
+	ole32                      = windows.NewLazySystemDLL("ole32.dll")
+	shParseDisplayName         = shell32.NewProc("SHParseDisplayName")
+	shOpenFolderAndSelectItems = shell32.NewProc("SHOpenFolderAndSelectItems")
+	coInitializeEx             = ole32.NewProc("CoInitializeEx")
+	coUninitialize             = ole32.NewProc("CoUninitialize")
+	coTaskMemFree              = ole32.NewProc("CoTaskMemFree")
+)
 
 func HttpGet(url string) (string, error) {
 	resp, err := httpClient.Get(url)
@@ -122,11 +136,39 @@ func IsInStartup() bool {
 }
 
 func RevealInFolder(path string) error {
-	cmd := exec.Command("explorer.exe", "/select,"+path)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow: true,
+	pathPtr, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return err
 	}
-	return cmd.Start()
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	initialized, _, _ := coInitializeEx.Call(0, 2)
+	if initialized == 0 || initialized == 1 {
+		defer coUninitialize.Call()
+	} else if uint32(initialized) != 0x80010106 {
+		return fmt.Errorf("initialize COM: HRESULT 0x%08X", uint32(initialized))
+	}
+
+	var item uintptr
+	result, _, _ := shParseDisplayName.Call(
+		uintptr(unsafe.Pointer(pathPtr)),
+		0,
+		uintptr(unsafe.Pointer(&item)),
+		0,
+		0,
+	)
+	if int32(result) < 0 {
+		return fmt.Errorf("resolve Explorer item: HRESULT 0x%08X", uint32(result))
+	}
+	defer coTaskMemFree.Call(item)
+
+	result, _, _ = shOpenFolderAndSelectItems.Call(item, 0, 0, 0)
+	if int32(result) < 0 {
+		return fmt.Errorf("open Explorer selection: HRESULT 0x%08X", uint32(result))
+	}
+	return nil
 }
 
 func OpenURI(uri string) error {
@@ -135,5 +177,11 @@ func OpenURI(uri string) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow: true,
 	}
+	return cmd.Start()
+}
+
+func RunShellCommand(command string) error {
+	cmd := exec.Command("cmd.exe", "/C", command)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	return cmd.Start()
 }

@@ -21,13 +21,6 @@ type SystemCommand struct {
 	Detail string
 }
 
-const (
-	ModeSearchProgram  = 10
-	ModeSearchInternet = 12
-
-	ModeQuickAnswer = 31
-)
-
 var (
 	AppName       = "winfastnav v0.7"
 	AppList       []Resource

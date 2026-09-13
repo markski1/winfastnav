@@ -104,7 +104,6 @@ type resultRow struct {
 
 type searchResult struct {
 	generation uint64
-	mode       int
 	query      string
 	items      []g.Resource
 	message    string
@@ -123,10 +122,10 @@ const (
 
 type uiState struct {
 	visible     bool
-	mode        int
 	query       string
 	message     string
 	loading     bool
+	answer      bool
 	page        page
 	resultCount int
 	selected    int
@@ -209,7 +208,6 @@ func SetupUI() {
 		unblockButtons: make(map[string]*widget.Clickable),
 		state: uiState{
 			visible:     true,
-			mode:        g.ModeSearchProgram,
 			page:        pageLauncher,
 			selected:    -1,
 			focusSearch: true,
@@ -258,10 +256,10 @@ func ShowWindow() {
 	active.clearItems()
 	active.updateState(func(state *uiState) {
 		state.visible = true
-		state.mode = g.ModeSearchProgram
 		state.page = pageLauncher
 		state.query = ""
 		state.message = ""
+		state.answer = false
 		state.resultCount = 0
 		state.selected = -1
 		state.focusSearch = true
@@ -322,6 +320,7 @@ func HideWindow() {
 		state.query = ""
 		state.message = ""
 		state.loading = false
+		state.answer = false
 		state.resultCount = 0
 		state.selected = -1
 		state.visible = false
@@ -427,7 +426,7 @@ func (l *launcher) initializeWindow(generation uint64) {
 func (l *launcher) update(gtx layout.Context) {
 	if l.refreshPending.Swap(false) {
 		state := l.snapshot()
-		if state.mode == g.ModeSearchProgram && state.page == pageLauncher {
+		if state.page == pageLauncher {
 			l.query(state.query)
 		}
 	}
@@ -520,11 +519,11 @@ func (l *launcher) key(gtx layout.Context, event key.Event) {
 	case key.NameReturn, key.NameEnter:
 		if s.selected >= 0 {
 			l.open(gtx, s.selected)
-		} else if s.mode != g.ModeSearchProgram {
+		} else {
 			l.submit(gtx, l.editor.Text())
 		}
 	case key.NameDeleteForward:
-		if s.mode == g.ModeSearchProgram && s.selected >= 0 {
+		if s.selected >= 0 {
 			l.block(s.selected)
 		}
 	case key.NameHome:
@@ -539,29 +538,38 @@ func (l *launcher) key(gtx layout.Context, event key.Event) {
 }
 
 func (l *launcher) query(query string) {
-	if query == ":a" {
-		l.activateCommandMode(g.ModeQuickAnswer)
-		return
-	}
-	if query == ":w" {
-		l.activateCommandMode(g.ModeSearchInternet)
-		return
-	}
-	mode := l.updateState(func(state *uiState) {
+	l.answerGeneration.Add(1)
+	l.updateState(func(state *uiState) {
 		state.query = query
 		state.selected = -1
-	}).mode
-	if mode == g.ModeQuickAnswer {
-		l.answerGeneration.Add(1)
-		l.message("")
+		state.answer = false
+	})
+
+	trimmed := strings.TrimSpace(query)
+	var shortcutMessage string
+	if strings.HasPrefix(trimmed, ">") {
+		value := strings.TrimSpace(trimmed[1:])
+		shortcutMessage = "Enter a command to run."
+		if value != "" {
+			shortcutMessage = "Press Enter to run: " + value
+		}
+	}
+	if shortcutMessage != "" {
+		l.cancelSearch()
+		l.clearItems()
+		l.updateState(func(state *uiState) {
+			state.resultCount = 0
+			state.loading = false
+		})
+		l.message(shortcutMessage)
 		return
 	}
 	l.message("")
-	l.beginSearch(query, mode)
+	l.beginSearch(query)
 }
 
 func (l *launcher) showRecent() {
-	items, _ := core.HandleTextInputMode("", g.ModeSearchProgram)
+	items, _ := core.HandleTextInput("")
 	l.mu.Lock()
 	l.items = items
 	l.mu.Unlock()
@@ -572,7 +580,7 @@ func (l *launcher) showRecent() {
 	})
 }
 
-func (l *launcher) beginSearch(query string, mode int) {
+func (l *launcher) beginSearch(query string) {
 	l.searchMu.Lock()
 	if l.searchTimer != nil {
 		l.searchTimer.Stop()
@@ -587,12 +595,12 @@ func (l *launcher) beginSearch(query string, mode int) {
 	ctx, cancel := context.WithCancel(context.Background())
 	l.searchCancel = cancel
 	l.searchTimer = time.AfterFunc(searchDebounce, func() {
-		l.runSearch(ctx, generation, query, mode)
+		l.runSearch(ctx, generation, query)
 	})
 	l.searchMu.Unlock()
 }
 
-func (l *launcher) runSearch(ctx context.Context, generation uint64, query string, mode int) {
+func (l *launcher) runSearch(ctx context.Context, generation uint64, query string) {
 	l.searchMu.Lock()
 	if generation != l.searchGeneration {
 		l.searchMu.Unlock()
@@ -601,7 +609,7 @@ func (l *launcher) runSearch(ctx context.Context, generation uint64, query strin
 	l.searchTimer = nil
 	l.searchMu.Unlock()
 
-	items, message := core.HandleTextInputMode(query, mode)
+	items, message := core.HandleTextInput(query)
 	if ctx.Err() != nil {
 		return
 	}
@@ -611,7 +619,7 @@ func (l *launcher) runSearch(ctx context.Context, generation uint64, query strin
 		l.searchMu.Unlock()
 		return
 	}
-	l.pendingSearch = &searchResult{generation: generation, mode: mode, query: query, items: items}
+	l.pendingSearch = &searchResult{generation: generation, query: query, items: items}
 	if message != nil {
 		l.pendingSearch.message = *message
 	}
@@ -630,7 +638,7 @@ func (l *launcher) applyPendingSearch() {
 	}
 
 	state := l.snapshot()
-	if state.page != pageLauncher || state.mode != result.mode || state.query != result.query {
+	if state.page != pageLauncher || state.query != result.query {
 		return
 	}
 	if result.message != "" {
@@ -674,7 +682,22 @@ func (l *launcher) cancelSearch() {
 }
 
 func (l *launcher) submit(gtx layout.Context, input string) {
+	input = strings.TrimSpace(input)
 	if input == "" {
+		return
+	}
+	switch input[0] {
+	case '>':
+		value := strings.TrimSpace(input[1:])
+		if value == "" {
+			l.message("Enter a command after >.")
+			return
+		}
+		if err := utils.RunShellCommand(value); err != nil {
+			l.message("Could not run command: " + err.Error())
+		} else {
+			HideWindow()
+		}
 		return
 	}
 	if strings.HasPrefix(input, ":") {
@@ -684,12 +707,6 @@ func (l *launcher) submit(gtx layout.Context, input string) {
 			return
 		}
 		switch input[1] {
-		case 'p':
-			l.mode(g.ModeSearchProgram)
-		case 'w':
-			l.mode(g.ModeSearchInternet)
-		case 'a':
-			l.mode(g.ModeQuickAnswer)
 		case 'r':
 			l.message("Re-indexing programs and documents.")
 			go documents.SetupDocs()
@@ -698,6 +715,8 @@ func (l *launcher) submit(gtx layout.Context, input string) {
 			HideWindow()
 		case 'x':
 			Quit()
+		default:
+			l.message("Unknown command. Menu -> Help lists the available commands.")
 		}
 		return
 	}
@@ -711,62 +730,35 @@ func (l *launcher) submit(gtx layout.Context, input string) {
 			}
 		}
 	}
-	state := l.snapshot()
-	switch state.mode {
-	case g.ModeQuickAnswer:
-		generation := l.answerGeneration.Add(1)
-		l.updateState(func(state *uiState) { state.loading = true })
-		l.message("Waiting for an answer...")
-		go func(p string) {
-			result := utils.QuickAnswer(p)
-			if l.answerGeneration.Load() != generation {
-				return
-			}
-			l.updateState(func(state *uiState) { state.loading = false })
-			l.message(result)
-		}(input)
-	case g.ModeSearchInternet:
-		if err := l.openWebSearch(input); err != nil {
-			l.message("Sorry, there was an error opening your web browser.")
-		} else {
-			HideWindow()
-		}
-	default:
-		if state.selected >= 0 {
-			l.open(gtx, state.selected)
-		}
+	if selected := l.snapshot().selected; selected >= 0 {
+		l.open(gtx, selected)
 	}
+}
+
+func (l *launcher) askAssistant(prompt string) {
+	generation := l.answerGeneration.Add(1)
+	l.clearItems()
+	l.updateState(func(state *uiState) {
+		state.answer = true
+		state.loading = true
+		state.resultCount = 0
+		state.selected = -1
+	})
+	l.message("Waiting for an answer...")
+	go func() {
+		result := utils.QuickAnswer(prompt)
+		if l.answerGeneration.Load() != generation {
+			return
+		}
+		l.updateState(func(state *uiState) { state.loading = false })
+		l.message(result)
+	}()
 }
 
 func (l *launcher) openWebSearch(query string) error {
 	return utils.OpenURI(strings.ReplaceAll(g.SearchString, "%s", url.QueryEscape(query)))
 }
 
-func (l *launcher) mode(mode int) {
-	l.answerGeneration.Add(1)
-	l.clearItems()
-	l.updateState(func(state *uiState) {
-		state.mode = mode
-		state.resultCount = 0
-		state.selected = -1
-	})
-	l.message("")
-	l.query(l.editor.Text())
-}
-
-func (l *launcher) activateCommandMode(mode int) {
-	l.answerGeneration.Add(1)
-	l.cancelSearch()
-	l.clearItems()
-	l.updateState(func(state *uiState) {
-		state.mode = mode
-		state.query = ""
-		state.resultCount = 0
-		state.selected = -1
-	})
-	l.message("")
-	l.editor.SetText("")
-}
 func (l *launcher) selectResult(index int) {
 	s := l.snapshot()
 	if s.resultCount == 0 {
@@ -809,8 +801,7 @@ func (l *launcher) open(gtx layout.Context, index int) {
 	item := l.items[index]
 	l.mu.RUnlock()
 	if item.Assistant != "" {
-		l.mode(g.ModeQuickAnswer)
-		l.submit(gtx, item.Assistant)
+		l.askAssistant(item.Assistant)
 		return
 	}
 	if item.WebSearch != "" {
@@ -868,7 +859,7 @@ func (l *launcher) block(index int) {
 }
 
 func (l *launcher) selectedPath(index int) string {
-	if index < 0 || l.snapshot().mode != g.ModeSearchProgram {
+	if index < 0 {
 		return ""
 	}
 	l.mu.RLock()
@@ -889,6 +880,8 @@ func (l *launcher) revealSelected() {
 		return
 	}
 	if err := utils.RevealInFolder(path); err != nil {
+		log.Printf("failed to reveal %q in Explorer: %v", path, err)
+		l.message("Could not reveal the selected item in Explorer.")
 		return
 	}
 }
@@ -1020,7 +1013,7 @@ func (l *launcher) layout(gtx layout.Context) layout.Dimensions {
 		case pageMenu:
 			return l.menuPage(gtx)
 		case pageHelp:
-			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nENTER: Open or run\nCTRL + ENTER: Reveal in Explorer\nSHIFT + ENTER: Run as administrator\nCTRL + C: Copy selected result\nDELETE: Hide app\n\n:w Internet search\n:a Quick Answer\n:r Re-index\n:x Quit\n\nDocuments: pdf report, type:docx, folder:work\n\nTry (2+3)^2, 20% of 80, 10 km to mi, or 100 USD to EUR.")
+			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nENTER: Open or run\nCTRL + ENTER: Reveal in Explorer\nSHIFT + ENTER: Run as administrator\nCTRL + C: Copy selected result\nDELETE: Hide app\n\n> command   Run with cmd.exe\n:r          Re-index\n:x          Quit\n\nDocuments: pdf report, type:docx, folder:work\n\nTry (2+3)^2, 20% of 80, 10 km to mi, or 100 USD to EUR.")
 		case pageSettings:
 			return l.settingsPage(gtx)
 		case pageAbout:
@@ -1044,8 +1037,7 @@ func (l *launcher) launcherPage(gtx layout.Context, s uiState) layout.Dimensions
 		l.editor.SetText("")
 		l.query("")
 	}
-	hint := placeholder(s.mode)
-	editor := material.Editor(l.theme, &l.editor, hint)
+	editor := material.Editor(l.theme, &l.editor, "Search apps and documents...")
 	editor.TextSize = unit.Sp(13)
 	editor.Color = l.palette.text
 	editor.HintColor = l.palette.muted
@@ -1133,7 +1125,7 @@ func (l *launcher) resultRows() []resultRow {
 	if len(applications) > 0 {
 		title := "APPS"
 		state := l.snapshot()
-		if state.mode == g.ModeSearchProgram && strings.TrimSpace(state.query) == "" {
+		if strings.TrimSpace(state.query) == "" {
 			title = "RECENT APPS"
 		}
 		rows = append(rows, resultRow{title: title, section: true})
@@ -1503,7 +1495,7 @@ func (l *launcher) emptyResults(gtx layout.Context, state uiState) layout.Dimens
 		if message == "" {
 			message = "Working…"
 		}
-		if state.mode == g.ModeQuickAnswer {
+		if state.answer {
 			return l.quickAnswer(gtx, message)
 		}
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1515,7 +1507,7 @@ func (l *launcher) emptyResults(gtx layout.Context, state uiState) layout.Dimens
 	if state.message == "" {
 		return layout.Dimensions{Size: gtx.Constraints.Min}
 	}
-	if state.mode == g.ModeQuickAnswer {
+	if state.answer {
 		return l.quickAnswer(gtx, state.message)
 	}
 	return l.centerMessage(gtx, state.message)
@@ -1702,7 +1694,7 @@ func (l *launcher) catalogStatusText(status apps.CatalogSnapshot) string {
 }
 
 func (l *launcher) keyboardHint(gtx layout.Context, state uiState) layout.Dimensions {
-	hint := "↑ ↓ move   Enter open   Esc hide   Alt+Space summon"
+	hint := "> command   Esc hide   Alt+Space summon"
 	if item, ok := l.selectedItem(); ok {
 		hint = "Enter open   Ctrl+C copy"
 		if item.Command != nil {
@@ -1779,14 +1771,4 @@ func (l *launcher) heading(gtx layout.Context, text string) layout.Dimensions {
 	s := material.H6(l.theme, text)
 	s.Color = l.palette.text
 	return s.Layout(gtx)
-}
-func placeholder(mode int) string {
-	switch mode {
-	case g.ModeSearchInternet:
-		return "Internet search..."
-	case g.ModeQuickAnswer:
-		return "Quick Answer..."
-	default:
-		return "Search apps and documents..."
-	}
 }

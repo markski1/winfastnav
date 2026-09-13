@@ -7,7 +7,7 @@ import (
 )
 
 func TestBareMathIsOfferedAsFirstResult(t *testing.T) {
-	results, message := HandleTextInputMode("2 + 2", globals.ModeSearchProgram)
+	results, message := HandleTextInput("2 + 2")
 	if message != nil {
 		t.Fatalf("unexpected message: %q", *message)
 	}
@@ -17,7 +17,7 @@ func TestBareMathIsOfferedAsFirstResult(t *testing.T) {
 }
 
 func TestBareUnitConversionIsOfferedAsFirstResult(t *testing.T) {
-	results, message := HandleTextInputMode("20in", globals.ModeSearchProgram)
+	results, message := HandleTextInput("20in")
 	if message != nil {
 		t.Fatalf("unexpected message: %q", *message)
 	}
@@ -27,7 +27,7 @@ func TestBareUnitConversionIsOfferedAsFirstResult(t *testing.T) {
 }
 
 func TestSystemCommandAppearsAsResult(t *testing.T) {
-	results, message := HandleTextInputMode("restart", globals.ModeSearchProgram)
+	results, message := HandleTextInput("restart")
 	if message != nil {
 		t.Fatalf("unexpected message: %q", *message)
 	}
@@ -37,7 +37,7 @@ func TestSystemCommandAppearsAsResult(t *testing.T) {
 }
 
 func TestWebSearchFallbackAppearsWhenNoProgramMatches(t *testing.T) {
-	results, message := HandleTextInputMode("query-that-will-not-match-anything", globals.ModeSearchProgram)
+	results, message := HandleTextInput("query-that-will-not-match-anything")
 	if message != nil {
 		t.Fatalf("unexpected message: %q", *message)
 	}

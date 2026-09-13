@@ -1,11 +1,10 @@
 package core
 
 import (
-	"fmt"
 	"strings"
-	"winfastnav/internal/documents"
 
 	"winfastnav/internal/apps"
+	"winfastnav/internal/documents"
 	"winfastnav/internal/globals"
 	"winfastnav/internal/settings"
 	"winfastnav/internal/systemactions"
@@ -18,13 +17,9 @@ const (
 	maxCommandResults  = 3
 )
 
-func HandleTextInputMode(query string, mode int) (retItems []globals.Resource, resultStr *string) {
+func HandleTextInput(query string) (retItems []globals.Resource, resultStr *string) {
 	if len(query) == 0 {
-		switch mode {
-		case globals.ModeSearchProgram:
-			return apps.RecentApplications(), nil
-		}
-		return nil, nil
+		return apps.RecentApplications(), nil
 	}
 
 	calculation, calculated := calculate(query)
@@ -35,32 +30,17 @@ func HandleTextInputMode(query string, mode int) (retItems []globals.Resource, r
 		return nil, &help
 	}
 
-	switch mode {
-	case globals.ModeSearchInternet:
-		s := fmt.Sprintf("Internet search: %s", query)
-		s = utils.WrapTextByWords(s, 64)
-		return nil, &s
-
-	case globals.ModeSearchProgram:
-		systemResults := systemactions.Find(query)
-		appResults := apps.FindAppResults(query)
-		documentResults := documents.FilterDocumentsByName(query)
-		results := combineResults(appResults, systemResults, documentResults)
-		if len(results) == 0 && !calculated {
-			results = []globals.Resource{
-				{Name: "Ask the assistant: " + query, Assistant: query},
-				{Name: "Search the web for: " + query, WebSearch: query},
-			}
+	systemResults := systemactions.Find(query)
+	appResults := apps.FindAppResults(query)
+	documentResults := documents.FilterDocumentsByName(query)
+	results := combineResults(appResults, systemResults, documentResults)
+	if len(results) == 0 && !calculated {
+		results = []globals.Resource{
+			{Name: "Ask the assistant: " + query, Assistant: query},
+			{Name: "Search the web for: " + query, WebSearch: query},
 		}
-		return withCalculation(results, calculation, calculated), nil
-
-	case globals.ModeQuickAnswer:
-		s := fmt.Sprintf("Quick Answer: %s", query)
-		s = utils.WrapTextByWords(s, 64)
-		return nil, &s
 	}
-
-	return nil, nil
+	return withCalculation(results, calculation, calculated), nil
 }
 
 func calculate(query string) (string, bool) {
