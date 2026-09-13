@@ -38,7 +38,6 @@ func GetInstalledApps() []g.Resource {
 		}
 	}
 
-	// sort by name
 	sort.Slice(cleanApps, func(i, j int) bool {
 		return strings.ToLower(cleanApps[i].Name) < strings.ToLower(cleanApps[j].Name)
 	})
@@ -226,7 +225,6 @@ func oleStringProperty(item *ole.IDispatch, name string) string {
 	return strings.TrimSpace(value.ToString())
 }
 
-// Search for programs by grabbing .lnk's off the start menu
 func scanStartMenu(currentAppList []g.Resource) []g.Resource {
 	for _, base := range startMenuDirectories() {
 		err := filepath.WalkDir(base, func(p string, de fs.DirEntry, err error) error {

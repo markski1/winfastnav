@@ -34,8 +34,6 @@ var (
 	ExecBlocklist []string
 	SearchString  string
 
-	CurrentMode int = ModeSearchProgram
-
 	//go:embed assets/icon.ico
 	IconBytes []byte
 )

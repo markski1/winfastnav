@@ -18,10 +18,6 @@ const (
 	maxCommandResults  = 3
 )
 
-func HandleTextInput(query string) (retItems []globals.Resource, resultStr *string) {
-	return HandleTextInputMode(query, globals.CurrentMode)
-}
-
 func HandleTextInputMode(query string, mode int) (retItems []globals.Resource, resultStr *string) {
 	if len(query) == 0 {
 		switch mode {

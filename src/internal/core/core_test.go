@@ -7,11 +7,7 @@ import (
 )
 
 func TestBareMathIsOfferedAsFirstResult(t *testing.T) {
-	previousMode := globals.CurrentMode
-	globals.CurrentMode = globals.ModeSearchProgram
-	t.Cleanup(func() { globals.CurrentMode = previousMode })
-
-	results, message := HandleTextInput("2 + 2")
+	results, message := HandleTextInputMode("2 + 2", globals.ModeSearchProgram)
 	if message != nil {
 		t.Fatalf("unexpected message: %q", *message)
 	}
@@ -21,11 +17,7 @@ func TestBareMathIsOfferedAsFirstResult(t *testing.T) {
 }
 
 func TestBareUnitConversionIsOfferedAsFirstResult(t *testing.T) {
-	previousMode := globals.CurrentMode
-	globals.CurrentMode = globals.ModeSearchProgram
-	t.Cleanup(func() { globals.CurrentMode = previousMode })
-
-	results, message := HandleTextInput("20in")
+	results, message := HandleTextInputMode("20in", globals.ModeSearchProgram)
 	if message != nil {
 		t.Fatalf("unexpected message: %q", *message)
 	}
@@ -35,11 +27,7 @@ func TestBareUnitConversionIsOfferedAsFirstResult(t *testing.T) {
 }
 
 func TestSystemCommandAppearsAsResult(t *testing.T) {
-	previousMode := globals.CurrentMode
-	globals.CurrentMode = globals.ModeSearchProgram
-	t.Cleanup(func() { globals.CurrentMode = previousMode })
-
-	results, message := HandleTextInput("restart")
+	results, message := HandleTextInputMode("restart", globals.ModeSearchProgram)
 	if message != nil {
 		t.Fatalf("unexpected message: %q", *message)
 	}
@@ -49,11 +37,7 @@ func TestSystemCommandAppearsAsResult(t *testing.T) {
 }
 
 func TestWebSearchFallbackAppearsWhenNoProgramMatches(t *testing.T) {
-	previousMode := globals.CurrentMode
-	globals.CurrentMode = globals.ModeSearchProgram
-	t.Cleanup(func() { globals.CurrentMode = previousMode })
-
-	results, message := HandleTextInput("query-that-will-not-match-anything")
+	results, message := HandleTextInputMode("query-that-will-not-match-anything", globals.ModeSearchProgram)
 	if message != nil {
 		t.Fatalf("unexpected message: %q", *message)
 	}

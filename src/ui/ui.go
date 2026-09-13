@@ -33,7 +33,6 @@ import (
 	"winfastnav/internal/documents"
 	g "winfastnav/internal/globals"
 	appicons "winfastnav/internal/icons"
-	"winfastnav/internal/presentation"
 	"winfastnav/internal/recent"
 	appsettings "winfastnav/internal/settings"
 	"winfastnav/internal/systemactions"
@@ -48,7 +47,6 @@ const (
 )
 
 type launcher struct {
-	controller                                    *presentation.Controller
 	windowControl                                 *windowcontrol.Controller
 	window                                        app.Window
 	ops                                           op.Ops
@@ -89,6 +87,8 @@ type launcher struct {
 	searchCancel                                  context.CancelFunc
 	searchTimer                                   *time.Timer
 	pendingSearch                                 *searchResult
+	stateMu                                       sync.RWMutex
+	state                                         uiState
 }
 
 var active *launcher
@@ -108,6 +108,29 @@ type searchResult struct {
 	query      string
 	items      []g.Resource
 	message    string
+}
+
+type page uint8
+
+const (
+	pageLauncher page = iota
+	pageMenu
+	pageHelp
+	pageSettings
+	pageAbout
+	pageConfirmation
+)
+
+type uiState struct {
+	visible     bool
+	mode        int
+	query       string
+	message     string
+	loading     bool
+	page        page
+	resultCount int
+	selected    int
+	focusSearch bool
 }
 
 type answerAtom struct {
@@ -177,7 +200,6 @@ func SetupUI() {
 	themeSetting, _ := appsettings.GetSetting("theme")
 	densitySetting, _ := appsettings.GetSetting("density")
 	active = &launcher{
-		controller:     presentation.NewController(g.ModeSearchProgram),
 		theme:          theme,
 		icons:          appicons.NewCache(),
 		list:           widget.List{List: layout.List{Axis: layout.Vertical}},
@@ -185,6 +207,13 @@ func SetupUI() {
 		lightTheme:     strings.EqualFold(themeSetting, "light"),
 		compact:        strings.EqualFold(densitySetting, "compact"),
 		unblockButtons: make(map[string]*widget.Clickable),
+		state: uiState{
+			visible:     true,
+			mode:        g.ModeSearchProgram,
+			page:        pageLauncher,
+			selected:    -1,
+			focusSearch: true,
+		},
 	}
 	active.icons.SetChangedHandler(active.invalidate)
 	active.applyPalette()
@@ -192,9 +221,7 @@ func SetupUI() {
 	active.indexRoots.SingleLine, active.indexExclusions.SingleLine = true, true
 	active.window.Option(app.Title(g.AppName), app.Size(unit.Dp(580), unit.Dp(460)), app.MinSize(unit.Dp(580), unit.Dp(460)), app.MaxSize(unit.Dp(580), unit.Dp(460)), app.Decorated(false), app.TopMost(true))
 	active.windowControl = windowcontrol.New(g.AppName)
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandShow})
 	active.showRecent()
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandFocusSearch})
 }
 
 func (l *launcher) applyPalette() {
@@ -225,22 +252,23 @@ func ShowWindow() {
 		return
 	}
 	generation := active.windowGeneration.Add(1)
-	if active.controller.Snapshot().Page == presentation.PageSettings {
+	if active.snapshot().page == pageSettings {
 		active.commitIndexSettings()
 	}
-	g.CurrentMode = g.ModeSearchProgram
 	active.clearItems()
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandShow})
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetMode, Mode: g.ModeSearchProgram})
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageLauncher})
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetQuery})
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetMessage})
+	active.updateState(func(state *uiState) {
+		state.visible = true
+		state.mode = g.ModeSearchProgram
+		state.page = pageLauncher
+		state.query = ""
+		state.message = ""
+		state.resultCount = 0
+		state.selected = -1
+		state.focusSearch = true
+	})
 	active.cancelSearch()
 	active.showRecent()
 	active.showAndFocus(generation)
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandFocusSearch})
-	active.invalidate()
 }
 
 func (l *launcher) showAndFocus(generation uint64) {
@@ -252,7 +280,7 @@ func (l *launcher) showAndFocus(generation uint64) {
 		if err == nil {
 			return
 		}
-		if generation == l.windowGeneration.Load() && l.controller.Snapshot().Visible {
+		if generation == l.windowGeneration.Load() && l.snapshot().visible {
 			log.Printf("failed to show launcher: %v", err)
 		}
 	})
@@ -261,7 +289,7 @@ func (l *launcher) showAndFocus(generation uint64) {
 func (l *launcher) setWindowVisible(generation uint64, visible bool) error {
 	l.windowMu.Lock()
 	defer l.windowMu.Unlock()
-	if generation != l.windowGeneration.Load() || l.controller.Snapshot().Visible != visible {
+	if generation != l.windowGeneration.Load() || l.snapshot().visible != visible {
 		return nil
 	}
 	if visible {
@@ -274,7 +302,7 @@ func ToggleWindow() {
 	if active == nil {
 		return
 	}
-	if active.controller.Snapshot().Visible {
+	if active.snapshot().visible {
 		HideWindow()
 		return
 	}
@@ -290,11 +318,15 @@ func HideWindow() {
 	active.cancelSearch()
 	active.clearItems()
 	active.focused.Store(false)
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetQuery})
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetLoading, Loading: false})
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetMessage})
-	active.controller.Dispatch(presentation.Command{Kind: presentation.CommandHide})
+	active.updateState(func(state *uiState) {
+		state.query = ""
+		state.message = ""
+		state.loading = false
+		state.resultCount = 0
+		state.selected = -1
+		state.visible = false
+		state.focusSearch = false
+	})
 	go active.hideWindow(generation)
 }
 
@@ -318,18 +350,35 @@ func (l *launcher) invalidate() {
 	}
 }
 
+func (l *launcher) snapshot() uiState {
+	l.stateMu.RLock()
+	defer l.stateMu.RUnlock()
+	return l.state
+}
+
+func (l *launcher) updateState(update func(*uiState)) uiState {
+	l.stateMu.Lock()
+	update(&l.state)
+	state := l.state
+	l.stateMu.Unlock()
+	l.invalidate()
+	return state
+}
+
 func ShowAbout() {
 	if active != nil {
-		active.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageAbout})
+		active.updateState(func(state *uiState) {
+			state.page = pageAbout
+			state.focusSearch = false
+		})
 	}
 }
 func Quit() {
 	if active != nil {
-		if active.controller.Snapshot().Page == presentation.PageSettings {
+		if active.snapshot().page == pageSettings {
 			active.commitIndexSettings()
 		}
 		active.cancelSearch()
-		active.controller.Close()
 	}
 	os.Exit(0)
 }
@@ -346,7 +395,7 @@ func (l *launcher) run() error {
 			}
 			if e.Config.Focused {
 				l.focused.Store(true)
-			} else if l.focused.Swap(false) && l.controller.Snapshot().Visible {
+			} else if l.focused.Swap(false) && l.snapshot().visible {
 				HideWindow()
 			}
 		case app.ViewEvent:
@@ -359,7 +408,6 @@ func (l *launcher) run() error {
 		case app.FrameEvent:
 			gtx := app.NewContext(&l.ops, e)
 			l.windowReady.Store(true)
-			l.controller.SetInvalidator(l.window.Invalidate)
 			l.update(gtx)
 			l.layout(gtx)
 			e.Frame(&l.ops)
@@ -378,15 +426,15 @@ func (l *launcher) initializeWindow(generation uint64) {
 
 func (l *launcher) update(gtx layout.Context) {
 	if l.refreshPending.Swap(false) {
-		state := l.controller.Snapshot()
-		if state.Mode == g.ModeSearchProgram && state.Page == presentation.PageLauncher {
-			l.query(state.Query)
+		state := l.snapshot()
+		if state.mode == g.ModeSearchProgram && state.page == pageLauncher {
+			l.query(state.query)
 		}
 	}
 	l.applyPendingSearch()
-	state := l.controller.Snapshot()
-	if l.editor.Text() != state.Query {
-		l.editor.SetText(state.Query)
+	state := l.snapshot()
+	if l.editor.Text() != state.query {
+		l.editor.SetText(state.query)
 	}
 	for {
 		e, ok := gtx.Source.Event(
@@ -431,8 +479,8 @@ func (l *launcher) update(gtx layout.Context) {
 }
 
 func (l *launcher) key(gtx layout.Context, event key.Event) {
-	s := l.controller.Snapshot()
-	if s.Page == presentation.PageConfirmation {
+	s := l.snapshot()
+	if s.page == pageConfirmation {
 		switch event.Name {
 		case key.NameEscape:
 			l.launcher()
@@ -460,33 +508,33 @@ func (l *launcher) key(gtx layout.Context, event key.Event) {
 
 	switch event.Name {
 	case key.NameEscape:
-		if s.Page == presentation.PageLauncher {
+		if s.page == pageLauncher {
 			HideWindow()
 		} else {
 			l.launcher()
 		}
 	case key.NameUpArrow:
-		l.selectResult(s.Selected - 1)
+		l.selectResult(s.selected - 1)
 	case key.NameDownArrow:
-		l.selectResult(s.Selected + 1)
+		l.selectResult(s.selected + 1)
 	case key.NameReturn, key.NameEnter:
-		if s.Selected >= 0 {
-			l.open(gtx, s.Selected)
-		} else if g.CurrentMode != g.ModeSearchProgram {
+		if s.selected >= 0 {
+			l.open(gtx, s.selected)
+		} else if s.mode != g.ModeSearchProgram {
 			l.submit(gtx, l.editor.Text())
 		}
 	case key.NameDeleteForward:
-		if g.CurrentMode == g.ModeSearchProgram && s.Selected >= 0 {
-			l.block(s.Selected)
+		if s.mode == g.ModeSearchProgram && s.selected >= 0 {
+			l.block(s.selected)
 		}
 	case key.NameHome:
 		l.selectResult(0)
 	case key.NameEnd:
-		l.selectResult(s.ResultCount - 1)
+		l.selectResult(s.resultCount - 1)
 	case key.NamePageUp:
-		l.selectResult(s.Selected - max(l.list.Position.Count-2, 1))
+		l.selectResult(s.selected - max(l.list.Position.Count-2, 1))
 	case key.NamePageDown:
-		l.selectResult(s.Selected + max(l.list.Position.Count-2, 1))
+		l.selectResult(s.selected + max(l.list.Position.Count-2, 1))
 	}
 }
 
@@ -499,8 +547,10 @@ func (l *launcher) query(query string) {
 		l.activateCommandMode(g.ModeSearchInternet)
 		return
 	}
-	mode := l.controller.Snapshot().Mode
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetQuery, Query: query})
+	mode := l.updateState(func(state *uiState) {
+		state.query = query
+		state.selected = -1
+	}).mode
 	if mode == g.ModeQuickAnswer {
 		l.answerGeneration.Add(1)
 		l.message("")
@@ -515,8 +565,11 @@ func (l *launcher) showRecent() {
 	l.mu.Lock()
 	l.items = items
 	l.mu.Unlock()
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults, ResultCount: len(items)})
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetLoading, Loading: false})
+	l.updateState(func(state *uiState) {
+		state.resultCount = len(items)
+		state.selected = -1
+		state.loading = false
+	})
 }
 
 func (l *launcher) beginSearch(query string, mode int) {
@@ -576,14 +629,17 @@ func (l *launcher) applyPendingSearch() {
 		return
 	}
 
-	state := l.controller.Snapshot()
-	if state.Page != presentation.PageLauncher || state.Mode != result.mode || state.Query != result.query {
+	state := l.snapshot()
+	if state.page != pageLauncher || state.mode != result.mode || state.query != result.query {
 		return
 	}
 	if result.message != "" {
 		l.clearItems()
-		l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
-		l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetLoading, Loading: false})
+		l.updateState(func(state *uiState) {
+			state.resultCount = 0
+			state.selected = -1
+			state.loading = false
+		})
 		l.message(result.message)
 		return
 	}
@@ -591,11 +647,14 @@ func (l *launcher) applyPendingSearch() {
 	l.mu.Lock()
 	l.items = result.items
 	l.mu.Unlock()
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults, ResultCount: len(result.items)})
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetLoading, Loading: false})
-	if firstResultSelected(result.query, len(result.items)) {
-		l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSelectResult, Selected: 0})
-	}
+	l.updateState(func(state *uiState) {
+		state.resultCount = len(result.items)
+		state.loading = false
+		state.selected = -1
+		if strings.TrimSpace(result.query) != "" && len(result.items) > 0 {
+			state.selected = 0
+		}
+	})
 	l.message("")
 }
 
@@ -612,10 +671,6 @@ func (l *launcher) cancelSearch() {
 	l.searchGeneration++
 	l.pendingSearch = nil
 	l.searchMu.Unlock()
-}
-
-func firstResultSelected(query string, resultCount int) bool {
-	return strings.TrimSpace(query) != "" && resultCount > 0
 }
 
 func (l *launcher) submit(gtx layout.Context, input string) {
@@ -656,17 +711,18 @@ func (l *launcher) submit(gtx layout.Context, input string) {
 			}
 		}
 	}
-	switch g.CurrentMode {
+	state := l.snapshot()
+	switch state.mode {
 	case g.ModeQuickAnswer:
 		generation := l.answerGeneration.Add(1)
-		l.controller.Post(presentation.Command{Kind: presentation.CommandSetLoading, Loading: true})
+		l.updateState(func(state *uiState) { state.loading = true })
 		l.message("Waiting for an answer...")
 		go func(p string) {
 			result := utils.QuickAnswer(p)
 			if l.answerGeneration.Load() != generation {
 				return
 			}
-			l.controller.Post(presentation.Command{Kind: presentation.CommandSetLoading, Loading: false})
+			l.updateState(func(state *uiState) { state.loading = false })
 			l.message(result)
 		}(input)
 	case g.ModeSearchInternet:
@@ -676,8 +732,8 @@ func (l *launcher) submit(gtx layout.Context, input string) {
 			HideWindow()
 		}
 	default:
-		if s := l.controller.Snapshot(); s.Selected >= 0 {
-			l.open(gtx, s.Selected)
+		if state.selected >= 0 {
+			l.open(gtx, state.selected)
 		}
 	}
 }
@@ -688,10 +744,12 @@ func (l *launcher) openWebSearch(query string) error {
 
 func (l *launcher) mode(mode int) {
 	l.answerGeneration.Add(1)
-	g.CurrentMode = mode
 	l.clearItems()
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetMode, Mode: mode})
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
+	l.updateState(func(state *uiState) {
+		state.mode = mode
+		state.resultCount = 0
+		state.selected = -1
+	})
 	l.message("")
 	l.query(l.editor.Text())
 }
@@ -699,24 +757,26 @@ func (l *launcher) mode(mode int) {
 func (l *launcher) activateCommandMode(mode int) {
 	l.answerGeneration.Add(1)
 	l.cancelSearch()
-	g.CurrentMode = mode
 	l.clearItems()
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetMode, Mode: mode})
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetQuery})
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSetResults})
+	l.updateState(func(state *uiState) {
+		state.mode = mode
+		state.query = ""
+		state.resultCount = 0
+		state.selected = -1
+	})
 	l.message("")
 	l.editor.SetText("")
 }
 func (l *launcher) selectResult(index int) {
-	s := l.controller.Snapshot()
-	if s.ResultCount == 0 {
+	s := l.snapshot()
+	if s.resultCount == 0 {
 		return
 	}
 	if index < 0 {
 		index = 0
 	}
-	if index >= s.ResultCount {
-		index = s.ResultCount - 1
+	if index >= s.resultCount {
+		index = s.resultCount - 1
 	}
 	if l.list.Position.Count > 0 {
 		targetRow := index
@@ -738,7 +798,7 @@ func (l *launcher) selectResult(index int) {
 			l.list.ScrollBy(float32(targetRow - last))
 		}
 	}
-	l.controller.Dispatch(presentation.Command{Kind: presentation.CommandSelectResult, Selected: index})
+	l.updateState(func(state *uiState) { state.selected = index })
 }
 func (l *launcher) open(gtx layout.Context, index int) {
 	l.mu.RLock()
@@ -764,7 +824,10 @@ func (l *launcher) open(gtx layout.Context, index int) {
 	if item.Command != nil {
 		if systemactions.RequiresConfirmation(item.Command.Action) {
 			l.pendingAction = item
-			l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageConfirmation})
+			l.updateState(func(state *uiState) {
+				state.page = pageConfirmation
+				state.focusSearch = false
+			})
 			return
 		}
 		l.executeSystemAction(item)
@@ -805,7 +868,7 @@ func (l *launcher) block(index int) {
 }
 
 func (l *launcher) selectedPath(index int) string {
-	if index < 0 || g.CurrentMode != g.ModeSearchProgram {
+	if index < 0 || l.snapshot().mode != g.ModeSearchProgram {
 		return ""
 	}
 	l.mu.RLock()
@@ -821,7 +884,7 @@ func (l *launcher) selectedPath(index int) string {
 }
 
 func (l *launcher) revealSelected() {
-	path := l.selectedPath(l.controller.Snapshot().Selected)
+	path := l.selectedPath(l.snapshot().selected)
 	if path == "" {
 		return
 	}
@@ -878,7 +941,7 @@ func (l *launcher) executeSystemAction(item g.Resource) {
 }
 
 func (l *launcher) selectedItem() (g.Resource, bool) {
-	index := l.controller.Snapshot().Selected
+	index := l.snapshot().selected
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	if index < 0 || index >= len(l.items) {
@@ -887,16 +950,24 @@ func (l *launcher) selectedItem() (g.Resource, bool) {
 	return l.items[index], true
 }
 
-func (l *launcher) clearItems() { l.mu.Lock(); l.items = nil; l.mu.Unlock() }
+func (l *launcher) clearItems() {
+	l.mu.Lock()
+	l.items = nil
+	l.mu.Unlock()
+}
+
 func (l *launcher) message(text string) {
-	l.controller.Post(presentation.Command{Kind: presentation.CommandSetMessage, Message: utils.WrapTextByWords(text, 64)})
+	l.updateState(func(state *uiState) { state.message = utils.WrapTextByWords(text, 64) })
 }
 func (l *launcher) launcher() {
-	if l.controller.Snapshot().Page == presentation.PageSettings {
+	if l.snapshot().page == pageSettings {
 		l.commitIndexSettings()
 	}
 	l.pendingAction = g.Resource{}
-	l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageLauncher})
+	l.updateState(func(state *uiState) {
+		state.page = pageLauncher
+		state.focusSearch = true
+	})
 }
 
 func (l *launcher) commitIndexSettings() {
@@ -943,18 +1014,18 @@ func (l *launcher) toggleDensity() {
 
 func (l *launcher) layout(gtx layout.Context) layout.Dimensions {
 	paint.FillShape(gtx.Ops, l.palette.window, clip.Rect{Max: gtx.Constraints.Max}.Op())
-	s := l.controller.Snapshot()
+	s := l.snapshot()
 	return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		switch s.Page {
-		case presentation.PageMenu:
+		switch s.page {
+		case pageMenu:
 			return l.menuPage(gtx)
-		case presentation.PageHelp:
+		case pageHelp:
 			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nENTER: Open or run\nCTRL + ENTER: Reveal in Explorer\nSHIFT + ENTER: Run as administrator\nCTRL + C: Copy selected result\nDELETE: Hide app\n\n:w Internet search\n:a Quick Answer\n:r Re-index\n:x Quit\n\nDocuments: pdf report, type:docx, folder:work\n\nTry (2+3)^2, 20% of 80, 10 km to mi, or 100 USD to EUR.")
-		case presentation.PageSettings:
+		case pageSettings:
 			return l.settingsPage(gtx)
-		case presentation.PageAbout:
+		case pageAbout:
 			return l.textPage(gtx, "winfastnav", "Fast Windows navigation\n\nmarkski.ar\ngithub.com/markski1")
-		case presentation.PageConfirmation:
+		case pageConfirmation:
 			return l.confirmationPage(gtx)
 		default:
 			return l.launcherPage(gtx, s)
@@ -962,15 +1033,18 @@ func (l *launcher) layout(gtx layout.Context) layout.Dimensions {
 	})
 }
 
-func (l *launcher) launcherPage(gtx layout.Context, s presentation.State) layout.Dimensions {
+func (l *launcher) launcherPage(gtx layout.Context, s uiState) layout.Dimensions {
 	for l.menu.Clicked(gtx) {
-		l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageMenu})
+		l.updateState(func(state *uiState) {
+			state.page = pageMenu
+			state.focusSearch = false
+		})
 	}
 	for l.clearSearch.Clicked(gtx) {
 		l.editor.SetText("")
 		l.query("")
 	}
-	hint := placeholder(s.Mode)
+	hint := placeholder(s.mode)
 	editor := material.Editor(l.theme, &l.editor, hint)
 	editor.TextSize = unit.Sp(13)
 	editor.Color = l.palette.text
@@ -998,10 +1072,10 @@ func (l *launcher) launcherPage(gtx layout.Context, s presentation.State) layout
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.statusBar(gtx, s) }),
 	)
-	if s.FocusSearch {
+	if s.focusSearch {
 		gtx.Source.Execute(key.FocusCmd{Tag: &l.editor})
 		if gtx.Focused(&l.editor) {
-			l.controller.Post(presentation.Command{Kind: presentation.CommandFocusHandled})
+			l.updateState(func(state *uiState) { state.focusSearch = false })
 		} else {
 			l.window.Invalidate()
 		}
@@ -1009,7 +1083,7 @@ func (l *launcher) launcherPage(gtx layout.Context, s presentation.State) layout
 	return dimensions
 }
 
-func (l *launcher) resultsPage(gtx layout.Context, s presentation.State) layout.Dimensions {
+func (l *launcher) resultsPage(gtx layout.Context, s uiState) layout.Dimensions {
 	rows := l.resultRows()
 	if len(rows) == 0 {
 		return l.emptyResults(gtx, s)
@@ -1022,7 +1096,7 @@ func (l *launcher) resultsPage(gtx layout.Context, s presentation.State) layout.
 		for l.results[row.resourceIndex].Clicked(gtx) {
 			l.open(gtx, row.resourceIndex)
 		}
-		return l.resultButton(gtx, &l.results[row.resourceIndex], row, row.resourceIndex == s.Selected)
+		return l.resultButton(gtx, &l.results[row.resourceIndex], row, row.resourceIndex == s.selected)
 	})
 }
 
@@ -1058,8 +1132,8 @@ func (l *launcher) resultRows() []resultRow {
 	rows := append([]resultRow(nil), calculated...)
 	if len(applications) > 0 {
 		title := "APPS"
-		state := l.controller.Snapshot()
-		if state.Mode == g.ModeSearchProgram && strings.TrimSpace(state.Query) == "" {
+		state := l.snapshot()
+		if state.mode == g.ModeSearchProgram && strings.TrimSpace(state.query) == "" {
 			title = "RECENT APPS"
 		}
 		rows = append(rows, resultRow{title: title, section: true})
@@ -1086,7 +1160,10 @@ func (l *launcher) resultRows() []resultRow {
 
 func (l *launcher) menuPage(gtx layout.Context) layout.Dimensions {
 	for l.help.Clicked(gtx) {
-		l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageHelp})
+		l.updateState(func(state *uiState) {
+			state.page = pageHelp
+			state.focusSearch = false
+		})
 	}
 	for l.settingsButton.Clicked(gtx) {
 		l.settings.SetText(g.SearchString)
@@ -1095,10 +1172,16 @@ func (l *launcher) menuPage(gtx layout.Context) layout.Dimensions {
 		l.indexExclusions.SetText(strings.Join(config.Exclusions, "; "))
 		l.startupEnabled = utils.IsInStartup()
 		l.settingsStatus = "Changes are saved automatically."
-		l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageSettings})
+		l.updateState(func(state *uiState) {
+			state.page = pageSettings
+			state.focusSearch = false
+		})
 	}
 	for l.about.Clicked(gtx) {
-		l.controller.Post(presentation.Command{Kind: presentation.CommandSetPage, Page: presentation.PageAbout})
+		l.updateState(func(state *uiState) {
+			state.page = pageAbout
+			state.focusSearch = false
+		})
 	}
 	for l.quit.Clicked(gtx) {
 		Quit()
@@ -1106,7 +1189,14 @@ func (l *launcher) menuPage(gtx layout.Context) layout.Dimensions {
 	for l.back.Clicked(gtx) {
 		l.launcher()
 	}
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.help, "Help") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.settingsButton, "Settings") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.about, "About") }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.quit, "Quit") }), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }))
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.help, "Help") }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.settingsButton, "Settings") }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.about, "About") }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.quit, "Quit") }),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }),
+	)
 }
 
 func (l *launcher) textPage(gtx layout.Context, title, text string) layout.Dimensions {
@@ -1407,13 +1497,13 @@ func (l *launcher) resultSection(gtx layout.Context, title string) layout.Dimens
 	return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(4)}.Layout(gtx, style.Layout)
 }
 
-func (l *launcher) emptyResults(gtx layout.Context, state presentation.State) layout.Dimensions {
-	if state.Loading {
-		message := state.Message
+func (l *launcher) emptyResults(gtx layout.Context, state uiState) layout.Dimensions {
+	if state.loading {
+		message := state.message
 		if message == "" {
 			message = "Working…"
 		}
-		if state.Mode == g.ModeQuickAnswer {
+		if state.mode == g.ModeQuickAnswer {
 			return l.quickAnswer(gtx, message)
 		}
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1422,13 +1512,13 @@ func (l *launcher) emptyResults(gtx layout.Context, state presentation.State) la
 			return style.Layout(gtx)
 		})
 	}
-	if state.Message == "" {
+	if state.message == "" {
 		return layout.Dimensions{Size: gtx.Constraints.Min}
 	}
-	if state.Mode == g.ModeQuickAnswer {
-		return l.quickAnswer(gtx, state.Message)
+	if state.mode == g.ModeQuickAnswer {
+		return l.quickAnswer(gtx, state.message)
 	}
-	return l.centerMessage(gtx, state.Message)
+	return l.centerMessage(gtx, state.message)
 }
 
 func (l *launcher) centerMessage(gtx layout.Context, message string) layout.Dimensions {
@@ -1546,7 +1636,7 @@ func (l *launcher) answerAtom(gtx layout.Context, atom answerAtom) layout.Dimens
 	return style.Layout(gtx)
 }
 
-func (l *launcher) statusBar(gtx layout.Context, state presentation.State) layout.Dimensions {
+func (l *launcher) statusBar(gtx layout.Context, state uiState) layout.Dimensions {
 	return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -1611,7 +1701,7 @@ func (l *launcher) catalogStatusText(status apps.CatalogSnapshot) string {
 	return textValue
 }
 
-func (l *launcher) keyboardHint(gtx layout.Context, state presentation.State) layout.Dimensions {
+func (l *launcher) keyboardHint(gtx layout.Context, state uiState) layout.Dimensions {
 	hint := "↑ ↓ move   Enter open   Esc hide   Alt+Space summon"
 	if item, ok := l.selectedItem(); ok {
 		hint = "Enter open   Ctrl+C copy"
@@ -1621,7 +1711,7 @@ func (l *launcher) keyboardHint(gtx layout.Context, state presentation.State) la
 		if item.Computed {
 			hint = "Enter copy   Ctrl+C copy"
 		}
-		if l.selectedPath(state.Selected) != "" {
+		if l.selectedPath(state.selected) != "" {
 			hint += "   Ctrl+Enter reveal"
 		}
 		if !item.Computed && !item.Document && filepath.IsAbs(item.Filepath) {

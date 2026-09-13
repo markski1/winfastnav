@@ -15,10 +15,8 @@ func ConvertUnit(s string) string {
 	}
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = strings.ReplaceAll(s, ",", "")
-	// allow for spaces by just ignoring them
 	s = strings.ReplaceAll(s, " ", "")
 
-	// grab the number
 	i := 0
 	if i < len(s) && (s[i] == '-' || s[i] == '+') {
 		i++
@@ -26,7 +24,6 @@ func ConvertUnit(s string) string {
 	for i < len(s) && (s[i] == '.' || (s[i] >= '0' && s[i] <= '9')) {
 		i++
 	}
-	// return if no number
 	if i == 0 || i == len(s) {
 		return ""
 	}
@@ -36,7 +33,6 @@ func ConvertUnit(s string) string {
 		return ""
 	}
 
-	// normalize unit synonyms
 	switch unit {
 	case "pound", "pounds":
 		unit = "lb"
@@ -48,14 +44,12 @@ func ConvertUnit(s string) string {
 		unit = "ft"
 	case "lbs":
 		unit = "lb"
-	// temperature synonyms
 	case "celsius":
 		unit = "c"
 	case "fahrenheit":
 		unit = "f"
 	case "kelvin":
 		unit = "k"
-	// speed synonyms
 	case "kph", "kmh":
 		unit = "km/h"
 	case "mps", "ms-1":
@@ -65,8 +59,7 @@ func ConvertUnit(s string) string {
 	}
 
 	var out []string
-	f2 := func(f float64) string {
-		// trim .00
+	formatNumber := func(f float64) string {
 		s := fmt.Sprintf("%.2f", f)
 		if strings.HasSuffix(s, ".00") {
 			return strings.TrimSuffix(s, ".00")
@@ -75,113 +68,109 @@ func ConvertUnit(s string) string {
 	}
 
 	switch unit {
-	// mass conversions
 	case "kg":
-		out = append(out, f2(val*1000)+" g")
-		out = append(out, f2(val*2.2046226218)+" lb")
-		out = append(out, f2(val*35.27396195)+" oz")
+		out = append(out, formatNumber(val*1000)+" g")
+		out = append(out, formatNumber(val*2.2046226218)+" lb")
+		out = append(out, formatNumber(val*35.27396195)+" oz")
 	case "g":
 		kg := val / 1000
-		out = append(out, f2(kg)+" kg")
-		out = append(out, f2(kg*2.2046226218)+" lb")
-		out = append(out, f2(kg*35.27396195)+" oz")
+		out = append(out, formatNumber(kg)+" kg")
+		out = append(out, formatNumber(kg*2.2046226218)+" lb")
+		out = append(out, formatNumber(kg*35.27396195)+" oz")
 	case "lb":
 		kg := val / 2.2046226218
-		out = append(out, f2(kg)+" kg")
-		out = append(out, f2(kg*1000)+" g")
-		out = append(out, f2(val*16)+" oz")
+		out = append(out, formatNumber(kg)+" kg")
+		out = append(out, formatNumber(kg*1000)+" g")
+		out = append(out, formatNumber(val*16)+" oz")
 	case "oz":
 		lb := val / 16
 		kg := lb / 2.2046226218
-		out = append(out, f2(kg)+" kg")
-		out = append(out, f2(kg*1000)+" g")
-		out = append(out, f2(lb)+" lb")
+		out = append(out, formatNumber(kg)+" kg")
+		out = append(out, formatNumber(kg*1000)+" g")
+		out = append(out, formatNumber(lb)+" lb")
 
-	// length conversions
 	case "m":
-		out = append(out, f2(val*100)+" cm")
-		out = append(out, f2(val*1000)+" mm")
-		out = append(out, f2(val*39.37007874)+" in")
-		out = append(out, f2(val*3.280839895)+" ft")
+		out = append(out, formatNumber(val*100)+" cm")
+		out = append(out, formatNumber(val*1000)+" mm")
+		out = append(out, formatNumber(val*39.37007874)+" in")
+		out = append(out, formatNumber(val*3.280839895)+" ft")
 	case "cm":
 		m := val / 100
-		out = append(out, f2(m)+" m")
-		out = append(out, f2(val*10)+" mm")
-		out = append(out, f2(m*39.37007874)+" in")
-		out = append(out, f2(m*3.280839895)+" ft")
+		out = append(out, formatNumber(m)+" m")
+		out = append(out, formatNumber(val*10)+" mm")
+		out = append(out, formatNumber(m*39.37007874)+" in")
+		out = append(out, formatNumber(m*3.280839895)+" ft")
 	case "mm":
 		cm := val / 10
 		m := cm / 100
-		out = append(out, f2(m)+" m")
-		out = append(out, f2(cm)+" cm")
-		out = append(out, f2(m*39.37007874)+" in")
-		out = append(out, f2(m*3.280839895)+" ft")
+		out = append(out, formatNumber(m)+" m")
+		out = append(out, formatNumber(cm)+" cm")
+		out = append(out, formatNumber(m*39.37007874)+" in")
+		out = append(out, formatNumber(m*3.280839895)+" ft")
 	case "in":
 		m := val / 39.37007874
-		out = append(out, f2(m)+" m")
-		out = append(out, f2(m*100)+" cm")
-		out = append(out, f2(m*1000)+" mm")
-		out = append(out, f2(val/12)+" ft")
+		out = append(out, formatNumber(m)+" m")
+		out = append(out, formatNumber(m*100)+" cm")
+		out = append(out, formatNumber(m*1000)+" mm")
+		out = append(out, formatNumber(val/12)+" ft")
 	case "ft":
 		m := val / 3.280839895
-		out = append(out, f2(m)+" m")
-		out = append(out, f2(m*100)+" cm")
-		out = append(out, f2(m*1000)+" mm")
-		out = append(out, f2(val*12)+" in")
+		out = append(out, formatNumber(m)+" m")
+		out = append(out, formatNumber(m*100)+" cm")
+		out = append(out, formatNumber(m*1000)+" mm")
+		out = append(out, formatNumber(val*12)+" in")
 
-	// temperature conversions
 	case "c":
 		c := val
 		f := c*9.0/5.0 + 32.0
 		k := c + 273.15
-		out = append(out, f2(f)+" °F")
-		out = append(out, f2(k)+" K")
+		out = append(out, formatNumber(f)+" °F")
+		out = append(out, formatNumber(k)+" K")
 	case "f":
 		fv := val
 		c := (fv - 32.0) * 5.0 / 9.0
 		k := c + 273.15
-		out = append(out, f2(c)+" °C")
-		out = append(out, f2(k)+" K")
+		out = append(out, formatNumber(c)+" °C")
+		out = append(out, formatNumber(k)+" K")
 	case "k":
 		kv := val
 		c := kv - 273.15
 		f := c*9.0/5.0 + 32.0
-		out = append(out, f2(c)+" °C")
-		out = append(out, f2(f)+" °F")
+		out = append(out, formatNumber(c)+" °C")
+		out = append(out, formatNumber(f)+" °F")
 
-	// speed conversions
 	case "m/s":
 		ms := val
 		kmh := ms * 3.6
 		mph := ms * 2.2369362921
 		fts := ms * 3.280839895
-		out = append(out, f2(kmh)+" kmh")
-		out = append(out, f2(mph)+" mph")
-		out = append(out, f2(fts)+" fps")
+		out = append(out, formatNumber(kmh)+" kmh")
+		out = append(out, formatNumber(mph)+" mph")
+		out = append(out, formatNumber(fts)+" fps")
 	case "km/h":
 		kmh := val
 		ms := kmh / 3.6
 		mph := kmh * 0.6213711922
 		fts := ms * 3.280839895
-		out = append(out, f2(ms)+" m/s")
-		out = append(out, f2(mph)+" mph")
-		out = append(out, f2(fts)+" fps")
+		out = append(out, formatNumber(ms)+" m/s")
+		out = append(out, formatNumber(mph)+" mph")
+		out = append(out, formatNumber(fts)+" fps")
 	case "mph":
 		mph := val
 		kmh := mph * 1.609344
 		ms := kmh / 3.6
 		fts := ms * 3.280839895
-		out = append(out, f2(ms)+" m/s")
-		out = append(out, f2(kmh)+" kmh")
-		out = append(out, f2(fts)+" fps")
+		out = append(out, formatNumber(ms)+" m/s")
+		out = append(out, formatNumber(kmh)+" kmh")
+		out = append(out, formatNumber(fts)+" fps")
 	case "ft/s":
 		fts := val
 		ms := fts / 3.280839895
 		kmh := ms * 3.6
 		mph := ms * 2.2369362921
-		out = append(out, f2(ms)+" m/s")
-		out = append(out, f2(kmh)+" kmh")
-		out = append(out, f2(mph)+" mph")
+		out = append(out, formatNumber(ms)+" m/s")
+		out = append(out, formatNumber(kmh)+" kmh")
+		out = append(out, formatNumber(mph)+" mph")
 
 	default:
 		return ""
