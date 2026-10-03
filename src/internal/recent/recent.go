@@ -81,13 +81,13 @@ func Record(path string) {
 	entries = updated
 	storedRecent, recentErr := json.Marshal(entries)
 	storedUsage, usageErr := json.Marshal(usage)
+	if recentErr == nil && usageErr == nil {
+		_ = settings.SetSettingsAsync(settings.Settings{
+			"recent": string(storedRecent),
+			"usage":  string(storedUsage),
+		})
+	}
 	mu.Unlock()
-	if recentErr == nil {
-		_ = settings.SetSetting("recent", string(storedRecent))
-	}
-	if usageErr == nil {
-		_ = settings.SetSetting("usage", string(storedUsage))
-	}
 }
 
 func RecordSelection(query, path string) {
@@ -115,10 +115,10 @@ func RecordSelection(query, path string) {
 	}
 	selections = updated
 	stored, err := json.Marshal(selections)
-	mu.Unlock()
 	if err == nil {
-		_ = settings.SetSetting("query_selections", string(stored))
+		_ = settings.SetSettingsAsync(settings.Settings{"query_selections": string(stored)})
 	}
+	mu.Unlock()
 }
 
 func MatchAndRankLimit(resources []globals.Resource, query string, limit int) []globals.Resource {
@@ -257,6 +257,7 @@ func normalizeQuery(query string) string {
 }
 
 func rank(resources []globals.Resource) []globals.Resource {
+	ranked := append([]globals.Resource(nil), resources...)
 	mu.RLock()
 	order := make(map[string]int, len(entries))
 	for index, entry := range entries {
@@ -264,12 +265,12 @@ func rank(resources []globals.Resource) []globals.Resource {
 	}
 	mu.RUnlock()
 	if len(order) == 0 {
-		return resources
+		return ranked
 	}
 
-	sort.SliceStable(resources, func(i, j int) bool {
-		left, leftRecent := order[strings.ToLower(resources[i].Filepath)]
-		right, rightRecent := order[strings.ToLower(resources[j].Filepath)]
+	sort.SliceStable(ranked, func(i, j int) bool {
+		left, leftRecent := order[strings.ToLower(ranked[i].Filepath)]
+		right, rightRecent := order[strings.ToLower(ranked[j].Filepath)]
 		switch {
 		case leftRecent && rightRecent:
 			return left < right
@@ -281,7 +282,7 @@ func rank(resources []globals.Resource) []globals.Resource {
 			return false
 		}
 	})
-	return resources
+	return ranked
 }
 
 func Only(resources []globals.Resource) []globals.Resource {

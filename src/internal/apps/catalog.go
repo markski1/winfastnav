@@ -7,11 +7,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"golang.org/x/sys/windows/registry"
 	g "winfastnav/internal/globals"
 )
 
@@ -262,6 +264,34 @@ func applicationSourcesFingerprint() uint64 {
 			if entry.IsDir() {
 				_, _ = hash.Write([]byte(strings.ToLower(entry.Name())))
 			}
+		}
+	}
+	for source, root := range []registry.Key{registry.CURRENT_USER, registry.LOCAL_MACHINE} {
+		key, err := registry.OpenKey(root, appPathsRegistryKey, registry.READ)
+		if err != nil {
+			continue
+		}
+		names, err := key.ReadSubKeyNames(-1)
+		_ = key.Close()
+		if err != nil {
+			continue
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			appKey, err := registry.OpenKey(root, appPathsRegistryKey+`\`+name, registry.READ)
+			if err != nil {
+				continue
+			}
+			path, _, err := appKey.GetStringValue("")
+			_ = appKey.Close()
+			if err != nil {
+				continue
+			}
+			_, _ = hash.Write([]byte{byte(source)})
+			_, _ = hash.Write([]byte(strings.ToLower(name)))
+			_, _ = hash.Write([]byte{0})
+			_, _ = hash.Write([]byte(strings.ToLower(path)))
+			_, _ = hash.Write([]byte{0})
 		}
 	}
 

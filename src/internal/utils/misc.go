@@ -102,6 +102,10 @@ func ContainsAny(s string, subs []string) bool {
 }
 
 func AddToStartup() error {
+	return SetStartupEnabled(true)
+}
+
+func SetStartupEnabled(enabled bool) error {
 	exePath, err := os.Executable()
 	if err != nil {
 		return err
@@ -114,7 +118,14 @@ func AddToStartup() error {
 		return err
 	}
 
-	err = key.SetStringValue("WinFastNav", exePath)
+	if enabled {
+		err = key.SetStringValue("WinFastNav", `"`+exePath+`"`)
+	} else {
+		err = key.DeleteValue("WinFastNav")
+		if err == registry.ErrNotExist {
+			err = nil
+		}
+	}
 	_ = key.Close()
 	return err
 }
@@ -132,7 +143,7 @@ func IsInStartup() bool {
 	}
 	defer key.Close()
 	value, _, err := key.GetStringValue("WinFastNav")
-	return err == nil && strings.EqualFold(value, exePath)
+	return err == nil && strings.EqualFold(strings.Trim(strings.TrimSpace(value), `"`), exePath)
 }
 
 func RevealInFolder(path string) error {

@@ -93,14 +93,25 @@ func TestNormalizeRootsExpandsWindowsEnvironmentVariables(t *testing.T) {
 	}
 }
 
-func TestDocumentCollectorKeepsFirstMatches(t *testing.T) {
-	collector := newDocumentCollector(2)
-	collector.add(g.Resource{Name: "First", Filepath: `C:\docs\first.pdf`})
-	collector.add(g.Resource{Name: "Second", Filepath: `C:\docs\second.pdf`})
-	collector.add(g.Resource{Name: "Recent", Filepath: `C:\docs\recent.pdf`})
-	results := collector.results()
-	if len(results) != 2 || results[0].Name != "First" || results[1].Name != "Second" {
-		t.Fatalf("collected documents = %#v", results)
+func TestDocumentSearchKeepsFirstThirtyMatches(t *testing.T) {
+	documents := make([]g.Resource, 31)
+	for index := range documents {
+		name := fmt.Sprintf("report-%02d.pdf", index)
+		documents[index] = g.Resource{Name: name, Filepath: `C:\docs\` + name}
+	}
+	documentCacheMu.Lock()
+	previous := DocumentCache
+	DocumentCache = documents
+	documentCacheMu.Unlock()
+	t.Cleanup(func() {
+		documentCacheMu.Lock()
+		DocumentCache = previous
+		documentCacheMu.Unlock()
+	})
+
+	results := FilterDocumentsByName("report")
+	if len(results) != 30 || results[0].Name != documents[0].Name || results[29].Name != documents[29].Name {
+		t.Fatalf("document search returned %#v", results)
 	}
 }
 

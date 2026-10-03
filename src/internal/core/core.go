@@ -94,7 +94,10 @@ func combineResults(appResults, systemResults, documentResults []globals.Resourc
 }
 
 // UpdateSearchSetting updates the saved search-string.
-func UpdateSearchSetting(s string) {
+func UpdateSearchSetting(s string) error {
+	if err := settings.SetSetting("searchstring", s); err != nil {
+		return err
+	}
 	globals.SearchString = s
-	_ = settings.SetSetting("searchstring", s)
+	return nil
 }

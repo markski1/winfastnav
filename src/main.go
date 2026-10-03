@@ -63,9 +63,9 @@ func main() {
 	apps.LoadCatalog()
 	utils.LoadCurrencyRates()
 	ui.SetupUI()
-	apps.SetCatalogChangedHandler(ui.RefreshResults)
+	apps.SetCatalogChangedHandler(ui.RefreshResources)
 	apps.SetStatusChangedHandler(func(apps.CatalogSnapshot) { ui.RefreshResults() })
-	documents.SetChangedHandler(ui.RefreshResults)
+	documents.SetChangedHandler(ui.RefreshResources)
 	documents.SetStatusChangedHandler(func(documents.IndexSnapshot) { ui.RefreshResults() })
 	go documents.SetupDocs()
 	go apps.MonitorCatalog()
@@ -90,6 +90,9 @@ func listenHotkeys() {
 }
 
 func onExit() {
+	if err := settings.Flush(); err != nil {
+		log.Printf("failed to save settings on exit: %v", err)
+	}
 	if keyboardHotkey != nil {
 		keyboardHotkey.Stop()
 	}

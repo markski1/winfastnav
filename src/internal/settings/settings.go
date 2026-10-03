@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	g "winfastnav/internal/globals"
 )
@@ -17,6 +18,9 @@ type Settings map[string]string
 var (
 	settingsMu sync.Mutex
 	settings   Settings
+	dirty      bool
+	writeOnce  sync.Once
+	writes     = make(chan struct{}, 1)
 )
 
 func SetupSettings() {
@@ -121,13 +125,74 @@ func writeSettings(s Settings) error {
 }
 
 func SetSetting(key, value string) error {
+	return SetSettings(Settings{key: value})
+}
+
+func SetSettings(values Settings) error {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
 	if err := loadSettings(); err != nil {
 		return err
 	}
-	settings[key] = value
-	return writeSettings(settings)
+	for key, value := range values {
+		settings[key] = value
+	}
+	dirty = true
+	return flushLocked()
+}
+
+func SetSettingsAsync(values Settings) error {
+	settingsMu.Lock()
+	if err := loadSettings(); err != nil {
+		settingsMu.Unlock()
+		return err
+	}
+	for key, value := range values {
+		settings[key] = value
+	}
+	dirty = true
+	settingsMu.Unlock()
+
+	writeOnce.Do(func() { go writePendingSettings() })
+	select {
+	case writes <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func Flush() error {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	return flushLocked()
+}
+
+func flushLocked() error {
+	if !dirty {
+		return nil
+	}
+	if err := writeSettings(settings); err != nil {
+		return err
+	}
+	dirty = false
+	return nil
+}
+
+func writePendingSettings() {
+	for range writes {
+		timer := time.NewTimer(300 * time.Millisecond)
+		for pending := true; pending; {
+			select {
+			case <-writes:
+				timer.Reset(300 * time.Millisecond)
+			case <-timer.C:
+				if err := Flush(); err != nil {
+					log.Printf("failed to save settings: %v", err)
+				}
+				pending = false
+			}
+		}
+	}
 }
 
 func GetSetting(key string) (string, error) {

@@ -74,6 +74,22 @@ func TestLearnedSelectionReordersSimilarMatches(t *testing.T) {
 	}
 }
 
+func TestBlankQueryDoesNotSortInput(t *testing.T) {
+	resetRankingState(t)
+	resources := []globals.Resource{
+		{Name: "Alpha", Filepath: `C:\apps\alpha.exe`},
+		{Name: "Beta", Filepath: `C:\apps\beta.exe`},
+	}
+	mu.Lock()
+	entries = []string{resources[1].Filepath}
+	mu.Unlock()
+
+	results := matchAndRank(resources, " ", 0)
+	if results[0].Name != "Beta" || resources[0].Name != "Alpha" {
+		t.Fatalf("ranking changed input: results=%#v resources=%#v", results, resources)
+	}
+}
+
 func resetRankingState(t *testing.T) {
 	t.Helper()
 	mu.Lock()

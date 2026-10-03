@@ -60,6 +60,8 @@ var (
 	indexConfig         IndexConfig
 	indexConfigReady    bool
 	indexRunMu          sync.Mutex
+	indexRunning        bool
+	indexPending        bool
 )
 
 func SetChangedHandler(handler func()) {
@@ -103,10 +105,10 @@ func LoadConfigFromSettings() {
 
 func ApplyConfig(config IndexConfig) (bool, error) {
 	config = normalizeIndexConfig(config)
-	if err := settings.SetSetting("indexroots", strings.Join(config.Roots, ";")); err != nil {
-		return false, err
-	}
-	if err := settings.SetSetting("indexexclusions", strings.Join(config.Exclusions, ";")); err != nil {
+	if err := settings.SetSettings(settings.Settings{
+		"indexroots":      strings.Join(config.Roots, ";"),
+		"indexexclusions": strings.Join(config.Exclusions, ";"),
+	}); err != nil {
 		return false, err
 	}
 	changed := setConfig(config)
@@ -131,11 +133,29 @@ func ParseIndexList(value string) []string {
 }
 
 func SetupDocs() {
-	if !indexRunMu.TryLock() {
+	indexRunMu.Lock()
+	indexPending = true
+	if indexRunning {
+		indexRunMu.Unlock()
 		return
 	}
-	defer indexRunMu.Unlock()
+	indexRunning = true
+	indexRunMu.Unlock()
 
+	for {
+		indexRunMu.Lock()
+		if !indexPending {
+			indexRunning = false
+			indexRunMu.Unlock()
+			return
+		}
+		indexPending = false
+		indexRunMu.Unlock()
+		indexDocuments()
+	}
+}
+
+func indexDocuments() {
 	config := Config()
 	state := Status()
 	setIndexState(IndexStatusIndexing, state.ItemCount, len(config.Roots), state.LastIndexed, nil)
@@ -194,7 +214,9 @@ func SetupDocs() {
 	}
 	if !sameIndexConfig(config, Config()) {
 		setIndexState(IndexStatusStale, len(documentCache), len(config.Roots), indexedAt, nil)
-		go SetupDocs()
+		indexRunMu.Lock()
+		indexPending = true
+		indexRunMu.Unlock()
 		return
 	}
 
@@ -467,7 +489,7 @@ func isHiddenDir(info os.FileInfo) bool {
 
 func FilterDocumentsByName(namePattern string) []g.Resource {
 	query := parseDocumentQuery(namePattern)
-	collector := newDocumentCollector(30)
+	results := make([]g.Resource, 0, 30)
 
 	documentCacheMu.RLock()
 	defer documentCacheMu.RUnlock()
@@ -494,37 +516,13 @@ func FilterDocumentsByName(namePattern string) []g.Resource {
 			}
 		}
 		if matched {
-			collector.add(doc)
+			results = append(results, doc)
+			if len(results) == cap(results) {
+				break
+			}
 		}
 	}
-	return collector.results()
-}
-
-type rankedDocument struct {
-	resource g.Resource
-	order    int
-}
-
-type documentCollector struct {
-	limit int
-	items []g.Resource
-}
-
-func newDocumentCollector(limit int) documentCollector {
-	return documentCollector{
-		limit: limit,
-		items: make([]g.Resource, 0, limit),
-	}
-}
-
-func (collector *documentCollector) add(resource g.Resource) {
-	if len(collector.items) < collector.limit {
-		collector.items = append(collector.items, resource)
-	}
-}
-
-func (collector *documentCollector) results() []g.Resource {
-	return collector.items
+	return results
 }
 
 type documentQuery struct {

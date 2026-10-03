@@ -16,9 +16,10 @@ import (
 	"time"
 
 	"gioui.org/app"
-	"gioui.org/font"
 	"gioui.org/io/clipboard"
+	"gioui.org/io/event"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -56,10 +57,29 @@ type launcher struct {
 	indexRoots, indexExclusions                   widget.Editor
 	list                                          widget.List
 	pageList                                      widget.List
+	settingsList                                  widget.List
+	helpList                                      widget.List
+	helpPane                                      helpPane
+	helpNav                                       [helpPaneCount]widget.Clickable
+	settingsPane                                  settingsPane
+	settingsNav                                   [settingsPaneCount]widget.Clickable
+	themeChoices, densityChoices                  [2]widget.Clickable
+	textSizeChoices                               [3]widget.Clickable
+	textSizeIndex                                 int
+	startupSwitch                                 widget.Bool
+	startupSet                                    func(bool) error
+	savedIndexConfig                              documents.IndexConfig
 	results                                       [maxResults + 2]widget.Clickable
+	resultMore                                    [maxResults + 2]widget.Clickable
+	resultContext                                 [maxResults + 2]int
+	rootPointer                                   int
+	pointerPosition                               image.Point
+	actionButtons                                 [5]widget.Clickable
+	actionDismiss                                 widget.Clickable
+	actionFocus                                   bool
 	menu, back, help, settingsButton, about, quit widget.Clickable
-	startup, confirm, cancel                      widget.Clickable
-	clearSearch, themeToggle, densityToggle       widget.Clickable
+	confirm, cancel                               widget.Clickable
+	clearSearch                                   widget.Clickable
 	reindex                                       widget.Clickable
 	mu                                            sync.RWMutex
 	items                                         []g.Resource
@@ -81,6 +101,8 @@ type launcher struct {
 	answerSpans                                   []markdownSpan
 	answerURLs                                    []string
 	answerLinks                                   [maxAnswerLinks]widget.Clickable
+	answerCopy, answerRetry                       widget.Clickable
+	answerFetch                                   func(string) string
 	pendingAction                                 g.Resource
 	searchMu                                      sync.Mutex
 	searchGeneration                              uint64
@@ -121,21 +143,26 @@ const (
 )
 
 type uiState struct {
-	visible     bool
-	query       string
-	message     string
-	loading     bool
-	answer      bool
-	page        page
-	resultCount int
-	selected    int
-	focusSearch bool
+	visible      bool
+	query        string
+	message      string
+	loading      bool
+	answer       bool
+	page         page
+	resultCount  int
+	selected     int
+	focusSearch  bool
+	answerPrompt string
+	answerCopied bool
+	actionMenu   bool
+	actionTarget g.Resource
 }
 
 type answerAtom struct {
-	text string
-	span markdownSpan
-	link int
+	text  string
+	span  markdownSpan
+	link  int
+	width int
 }
 
 type uiPalette struct {
@@ -198,13 +225,17 @@ func SetupUI() {
 	theme.TextSize = unit.Sp(12.35)
 	themeSetting, _ := appsettings.GetSetting("theme")
 	densitySetting, _ := appsettings.GetSetting("density")
+	textSizeSetting, _ := appsettings.GetSetting("textsize")
 	active = &launcher{
 		theme:          theme,
 		icons:          appicons.NewCache(),
 		list:           widget.List{List: layout.List{Axis: layout.Vertical}},
 		pageList:       widget.List{List: layout.List{Axis: layout.Vertical}},
+		settingsList:   widget.List{List: layout.List{Axis: layout.Vertical}},
+		helpList:       widget.List{List: layout.List{Axis: layout.Vertical}},
 		lightTheme:     strings.EqualFold(themeSetting, "light"),
 		compact:        strings.EqualFold(densitySetting, "compact"),
+		textSizeIndex:  textSizeIndexForSetting(textSizeSetting),
 		unblockButtons: make(map[string]*widget.Clickable),
 		state: uiState{
 			visible:     true,
@@ -251,21 +282,13 @@ func ShowWindow() {
 	}
 	generation := active.windowGeneration.Add(1)
 	if active.snapshot().page == pageSettings {
-		active.commitIndexSettings()
+		active.commitIndexSettings(false)
 	}
-	active.clearItems()
-	active.updateState(func(state *uiState) {
-		state.visible = true
-		state.page = pageLauncher
-		state.query = ""
-		state.message = ""
-		state.answer = false
-		state.resultCount = 0
-		state.selected = -1
-		state.focusSearch = true
-	})
+	active.prepareShow()
 	active.cancelSearch()
-	active.showRecent()
+	if !active.snapshot().answer {
+		active.showRecent()
+	}
 	active.showAndFocus(generation)
 }
 
@@ -312,20 +335,9 @@ func HideWindow() {
 		return
 	}
 	generation := active.windowGeneration.Add(1)
-	active.answerGeneration.Add(1)
 	active.cancelSearch()
-	active.clearItems()
 	active.focused.Store(false)
-	active.updateState(func(state *uiState) {
-		state.query = ""
-		state.message = ""
-		state.loading = false
-		state.answer = false
-		state.resultCount = 0
-		state.selected = -1
-		state.visible = false
-		state.focusSearch = false
-	})
+	active.prepareHide()
 	go active.hideWindow(generation)
 }
 
@@ -341,6 +353,14 @@ func RefreshResults() {
 	}
 	active.refreshPending.Store(true)
 	active.invalidate()
+}
+
+func RefreshResources() {
+	if active == nil {
+		return
+	}
+	active.icons.Clear()
+	RefreshResults()
 }
 
 func (l *launcher) invalidate() {
@@ -375,9 +395,12 @@ func ShowAbout() {
 func Quit() {
 	if active != nil {
 		if active.snapshot().page == pageSettings {
-			active.commitIndexSettings()
+			active.commitIndexSettings(false)
 		}
 		active.cancelSearch()
+	}
+	if err := appsettings.Flush(); err != nil {
+		log.Printf("failed to save settings on exit: %v", err)
 	}
 	os.Exit(0)
 }
@@ -426,7 +449,9 @@ func (l *launcher) initializeWindow(generation uint64) {
 func (l *launcher) update(gtx layout.Context) {
 	if l.refreshPending.Swap(false) {
 		state := l.snapshot()
-		if state.page == pageLauncher {
+		if state.actionMenu {
+			l.refreshPending.Store(true)
+		} else if state.page == pageLauncher && !state.answer {
 			l.query(state.query)
 		}
 	}
@@ -435,13 +460,13 @@ func (l *launcher) update(gtx layout.Context) {
 	if l.editor.Text() != state.query {
 		l.editor.SetText(state.query)
 	}
-	for {
-		e, ok := gtx.Source.Event(
+	keyFilters := []event.Filter{key.Filter{Name: key.NameEscape}}
+	if state.page == pageLauncher && !state.actionMenu {
+		keyFilters = append(keyFilters,
 			key.Filter{Name: key.NameUpArrow},
 			key.Filter{Name: key.NameDownArrow},
 			key.Filter{Name: key.NameReturn},
 			key.Filter{Name: key.NameEnter},
-			key.Filter{Name: key.NameEscape},
 			key.Filter{Name: key.NameDeleteForward},
 			key.Filter{Name: key.NameHome},
 			key.Filter{Name: key.NameEnd},
@@ -455,13 +480,42 @@ func (l *launcher) update(gtx layout.Context) {
 			key.Filter{Name: key.NameEnter, Required: key.ModShift},
 			key.Filter{Name: "C", Required: key.ModCtrl},
 			key.Filter{Name: "C", Required: key.ModCtrl | key.ModShift},
+			key.Filter{Name: key.NameF10, Required: key.ModShift},
 		)
+	} else if state.actionMenu {
+		keyFilters = append(keyFilters,
+			key.Filter{Name: key.NameUpArrow},
+			key.Filter{Name: key.NameDownArrow},
+			key.Filter{Name: "C", Required: key.ModCtrl},
+			key.Filter{Name: key.NameReturn, Required: key.ModCtrl},
+			key.Filter{Name: key.NameEnter, Required: key.ModCtrl},
+			key.Filter{Name: key.NameReturn, Required: key.ModShift},
+			key.Filter{Name: key.NameEnter, Required: key.ModShift},
+			key.Filter{Name: key.NameDeleteForward},
+		)
+	} else if state.page == pageConfirmation {
+		keyFilters = append(keyFilters, key.Filter{Name: key.NameReturn}, key.Filter{Name: key.NameEnter})
+	}
+	for {
+		e, ok := gtx.Source.Event(keyFilters...)
 		if !ok {
 			break
 		}
 		if k, ok := e.(key.Event); ok && k.State == key.Press {
 			l.key(gtx, k)
 		}
+	}
+	for {
+		e, ok := gtx.Event(pointer.Filter{Target: &l.rootPointer, Kinds: pointer.Press})
+		if !ok {
+			break
+		}
+		if e, ok := e.(pointer.Event); ok {
+			l.pointerPosition = image.Pt(int(e.Position.X), int(e.Position.Y))
+		}
+	}
+	if l.snapshot().page != pageLauncher {
+		return
 	}
 	for {
 		e, ok := l.editor.Update(gtx)
@@ -479,6 +533,43 @@ func (l *launcher) update(gtx layout.Context) {
 
 func (l *launcher) key(gtx layout.Context, event key.Event) {
 	s := l.snapshot()
+	if s.actionMenu {
+		if event.Name == key.NameUpArrow || event.Name == key.NameDownArrow {
+			choices := actionsForResult(s.actionTarget)
+			index := 0
+			for i := range choices {
+				if gtx.Focused(&l.actionButtons[i]) {
+					index = i
+					break
+				}
+			}
+			if event.Name == key.NameUpArrow {
+				index--
+			} else {
+				index++
+			}
+			index = (index + len(choices)) % len(choices)
+			gtx.Execute(key.FocusCmd{Tag: &l.actionButtons[index]})
+		}
+		if event.Name == key.NameEscape {
+			l.closeResultActions()
+		}
+		if event.Name == "C" && event.Modifiers.Contain(key.ModCtrl) {
+			l.executeResultAction(gtx, s.actionTarget, resultCopy)
+		}
+		if event.Name == key.NameReturn || event.Name == key.NameEnter {
+			if event.Modifiers.Contain(key.ModCtrl) {
+				l.executeResultAction(gtx, s.actionTarget, resultReveal)
+			}
+			if event.Modifiers.Contain(key.ModShift) {
+				l.executeResultAction(gtx, s.actionTarget, resultAdmin)
+			}
+		}
+		if event.Name == key.NameDeleteForward {
+			l.executeResultAction(gtx, s.actionTarget, resultHide)
+		}
+		return
+	}
 	if s.page == pageConfirmation {
 		switch event.Name {
 		case key.NameEscape:
@@ -486,6 +577,17 @@ func (l *launcher) key(gtx layout.Context, event key.Event) {
 		case key.NameReturn, key.NameEnter:
 			l.executeSystemAction(l.pendingAction)
 		}
+		return
+	}
+	if s.page != pageLauncher {
+		if event.Name == key.NameEscape {
+			l.backPage()
+		}
+		return
+	}
+	if event.Name == key.NameF10 && event.Modifiers.Contain(key.ModShift) {
+		l.pointerPosition = image.Pt(gtx.Dp(24), gtx.Dp(70))
+		l.openResultActions(s.selected)
 		return
 	}
 	if (event.Name == key.NameReturn || event.Name == key.NameEnter) && event.Modifiers.Contain(key.ModShift) {
@@ -501,6 +603,10 @@ func (l *launcher) key(gtx layout.Context, event key.Event) {
 		return
 	}
 	if event.Name == "C" && event.Modifiers.Contain(key.ModCtrl) {
+		if s.answer && !s.loading {
+			l.copyAnswer(gtx)
+			return
+		}
 		l.copySelected(gtx)
 		return
 	}
@@ -543,6 +649,9 @@ func (l *launcher) query(query string) {
 		state.query = query
 		state.selected = -1
 		state.answer = false
+		state.answerPrompt = ""
+		state.answerCopied = false
+		state.actionMenu = false
 	})
 
 	trimmed := strings.TrimSpace(query)
@@ -638,7 +747,7 @@ func (l *launcher) applyPendingSearch() {
 	}
 
 	state := l.snapshot()
-	if state.page != pageLauncher || state.query != result.query {
+	if state.page != pageLauncher || state.answer || state.query != result.query {
 		return
 	}
 	if result.message != "" {
@@ -736,6 +845,7 @@ func (l *launcher) submit(gtx layout.Context, input string) {
 }
 
 func (l *launcher) askAssistant(prompt string) {
+	l.cancelSearch()
 	generation := l.answerGeneration.Add(1)
 	l.clearItems()
 	l.updateState(func(state *uiState) {
@@ -743,15 +853,26 @@ func (l *launcher) askAssistant(prompt string) {
 		state.loading = true
 		state.resultCount = 0
 		state.selected = -1
+		state.answerPrompt = prompt
+		state.answerCopied = false
+		state.message = "Waiting for an answer…"
 	})
-	l.message("Waiting for an answer...")
+	fetch := l.answerFetch
+	if fetch == nil {
+		fetch = utils.QuickAnswer
+	}
 	go func() {
-		result := utils.QuickAnswer(prompt)
-		if l.answerGeneration.Load() != generation {
-			return
+		result := fetch(prompt)
+		if strings.TrimSpace(result) == "" {
+			result = "No answer returned. Try again."
 		}
-		l.updateState(func(state *uiState) { state.loading = false })
-		l.message(result)
+		l.updateState(func(state *uiState) {
+			if l.answerGeneration.Load() != generation {
+				return
+			}
+			state.loading = false
+			state.message = result
+		})
 	}()
 }
 
@@ -794,12 +915,16 @@ func (l *launcher) selectResult(index int) {
 }
 func (l *launcher) open(gtx layout.Context, index int) {
 	l.mu.RLock()
-	if index >= len(l.items) {
+	if index < 0 || index >= len(l.items) {
 		l.mu.RUnlock()
 		return
 	}
 	item := l.items[index]
 	l.mu.RUnlock()
+	l.openResource(gtx, item)
+}
+
+func (l *launcher) openResource(gtx layout.Context, item g.Resource) {
 	if item.Assistant != "" {
 		l.askAssistant(item.Assistant)
 		return
@@ -845,7 +970,7 @@ func (l *launcher) open(gtx layout.Context, index int) {
 }
 func (l *launcher) block(index int) {
 	l.mu.RLock()
-	if index >= len(l.items) {
+	if index < 0 || index >= len(l.items) {
 		l.mu.RUnlock()
 		return
 	}
@@ -906,7 +1031,14 @@ func (l *launcher) copyText(gtx layout.Context, value string) {
 
 func (l *launcher) runSelectedElevated() {
 	item, ok := l.selectedItem()
-	if !ok || item.Computed || item.Document || item.Command != nil || item.WebSearch != "" || item.Assistant != "" {
+	if !ok {
+		return
+	}
+	l.runResourceElevated(item)
+}
+
+func (l *launcher) runResourceElevated(item g.Resource) {
+	if item.Computed || item.Document || item.Command != nil || item.WebSearch != "" || item.Assistant != "" {
 		return
 	}
 	if err := apps.RunProgramElevated(item.Filepath); err != nil {
@@ -954,7 +1086,7 @@ func (l *launcher) message(text string) {
 }
 func (l *launcher) launcher() {
 	if l.snapshot().page == pageSettings {
-		l.commitIndexSettings()
+		l.commitIndexSettings(false)
 	}
 	l.pendingAction = g.Resource{}
 	l.updateState(func(state *uiState) {
@@ -963,19 +1095,26 @@ func (l *launcher) launcher() {
 	})
 }
 
-func (l *launcher) commitIndexSettings() {
+func (l *launcher) commitIndexSettings(force bool) bool {
+	if !force && !l.indexSettingsPending() {
+		return true
+	}
 	changed, err := documents.ApplyConfig(documents.IndexConfig{
 		Roots:      documents.ParseIndexList(l.indexRoots.Text()),
 		Exclusions: documents.ParseIndexList(l.indexExclusions.Text()),
 	})
 	if err != nil {
 		l.settingsStatus = "Could not save index settings: " + err.Error()
-		return
+		return false
 	}
-	if changed {
+	l.savedIndexConfig = documents.Config()
+	l.indexRoots.SetText(strings.Join(l.savedIndexConfig.Roots, "; "))
+	l.indexExclusions.SetText(strings.Join(l.savedIndexConfig.Exclusions, "; "))
+	if changed || force {
 		l.settingsStatus = "Index settings saved; indexing…"
 		go documents.SetupDocs()
 	}
+	return true
 }
 
 func (l *launcher) toggleTheme() {
@@ -1006,14 +1145,33 @@ func (l *launcher) toggleDensity() {
 }
 
 func (l *launcher) layout(gtx layout.Context) layout.Dimensions {
+	gtx.Metric.PxPerSp = effectiveSpScale(gtx.Metric.PxPerSp) * textSizeScale(l.textSizeIndex)
 	paint.FillShape(gtx.Ops, l.palette.window, clip.Rect{Max: gtx.Constraints.Max}.Op())
+	dimensions := layout.Stack{}.Layout(gtx,
+		layout.Expanded(func(gtx layout.Context) layout.Dimensions { return l.layoutPage(gtx) }),
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			if !l.snapshot().actionMenu {
+				return layout.Dimensions{}
+			}
+			return l.resultActionMenu(gtx)
+		}),
+	)
+	pass := pointer.PassOp{}.Push(gtx.Ops)
+	area := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+	event.Op(gtx.Ops, &l.rootPointer)
+	area.Pop()
+	pass.Pop()
+	return dimensions
+}
+
+func (l *launcher) layoutPage(gtx layout.Context) layout.Dimensions {
 	s := l.snapshot()
 	return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		switch s.page {
 		case pageMenu:
 			return l.menuPage(gtx)
 		case pageHelp:
-			return l.textPage(gtx, "Help", "ALT + SPACE: Summon\nESC: Hide\nENTER: Open or run\nCTRL + ENTER: Reveal in Explorer\nSHIFT + ENTER: Run as administrator\nCTRL + C: Copy selected result\nDELETE: Hide app\n\n> command   Run with cmd.exe\n:r          Re-index\n:x          Quit\n\nDocuments: pdf report, type:docx, folder:work\n\nTry (2+3)^2, 20% of 80, 10 km to mi, or 100 USD to EUR.")
+			return l.helpPage(gtx)
 		case pageSettings:
 			return l.settingsPage(gtx)
 		case pageAbout:
@@ -1069,7 +1227,7 @@ func (l *launcher) launcherPage(gtx layout.Context, s uiState) layout.Dimensions
 		if gtx.Focused(&l.editor) {
 			l.updateState(func(state *uiState) { state.focusSearch = false })
 		} else {
-			l.window.Invalidate()
+			l.invalidate()
 		}
 	}
 	return dimensions
@@ -1085,8 +1243,11 @@ func (l *launcher) resultsPage(gtx layout.Context, s uiState) layout.Dimensions 
 		if row.section {
 			return l.resultSection(gtx, row.title)
 		}
+		l.updateResultActions(gtx, row.resourceIndex)
 		for l.results[row.resourceIndex].Clicked(gtx) {
-			l.open(gtx, row.resourceIndex)
+			if !l.snapshot().actionMenu {
+				l.open(gtx, row.resourceIndex)
+			}
 		}
 		return l.resultButton(gtx, &l.results[row.resourceIndex], row, row.resourceIndex == s.selected)
 	})
@@ -1110,7 +1271,7 @@ func (l *launcher) resultRows() []resultRow {
 			continue
 		}
 		if item.Assistant != "" {
-			assistantRows = append(assistantRows, resultRow{title: item.Name, detail: "Get a Quick Answer", kind: "Answer", resourceIndex: resourceIndex})
+			assistantRows = append(assistantRows, resultRow{title: item.Name, detail: "Get a quick answer", kind: "Answer", resourceIndex: resourceIndex})
 			continue
 		}
 		row := resultRow{title: item.Name, detail: filepath.Dir(item.Filepath), iconPath: item.Filepath, kind: "Application", resourceIndex: resourceIndex}
@@ -1150,50 +1311,9 @@ func (l *launcher) resultRows() []resultRow {
 	return rows
 }
 
-func (l *launcher) menuPage(gtx layout.Context) layout.Dimensions {
-	for l.help.Clicked(gtx) {
-		l.updateState(func(state *uiState) {
-			state.page = pageHelp
-			state.focusSearch = false
-		})
-	}
-	for l.settingsButton.Clicked(gtx) {
-		l.settings.SetText(g.SearchString)
-		config := documents.Config()
-		l.indexRoots.SetText(strings.Join(config.Roots, "; "))
-		l.indexExclusions.SetText(strings.Join(config.Exclusions, "; "))
-		l.startupEnabled = utils.IsInStartup()
-		l.settingsStatus = "Changes are saved automatically."
-		l.updateState(func(state *uiState) {
-			state.page = pageSettings
-			state.focusSearch = false
-		})
-	}
-	for l.about.Clicked(gtx) {
-		l.updateState(func(state *uiState) {
-			state.page = pageAbout
-			state.focusSearch = false
-		})
-	}
-	for l.quit.Clicked(gtx) {
-		Quit()
-	}
-	for l.back.Clicked(gtx) {
-		l.launcher()
-	}
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.help, "Help") }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.settingsButton, "Settings") }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.about, "About") }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.quit, "Quit") }),
-		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }),
-	)
-}
-
 func (l *launcher) textPage(gtx layout.Context, title, text string) layout.Dimensions {
 	for l.back.Clicked(gtx) {
-		l.launcher()
+		l.backPage()
 	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.heading(gtx, title) }),
@@ -1206,167 +1326,6 @@ func (l *launcher) textPage(gtx layout.Context, title, text string) layout.Dimen
 
 func (l *launcher) scrollPage(gtx layout.Context, widgets ...layout.Widget) layout.Dimensions {
 	return material.List(l.theme, &l.pageList).LayoutWidgets(gtx, widgets...)
-}
-
-func (l *launcher) settingsPage(gtx layout.Context) layout.Dimensions {
-	for {
-		e, ok := l.settings.Update(gtx)
-		if !ok {
-			break
-		}
-		if _, changed := e.(widget.ChangeEvent); changed {
-			core.UpdateSearchSetting(l.settings.Text())
-			l.settingsStatus = "Search URL saved."
-		}
-	}
-	for {
-		_, ok := l.indexRoots.Update(gtx)
-		if !ok {
-			break
-		}
-	}
-	for {
-		_, ok := l.indexExclusions.Update(gtx)
-		if !ok {
-			break
-		}
-	}
-	for l.startup.Clicked(gtx) {
-		if err := utils.AddToStartup(); err != nil {
-			l.settingsStatus = "Could not enable startup: " + err.Error()
-		} else {
-			l.startupEnabled = true
-			l.settingsStatus = "Startup enabled."
-		}
-	}
-	for l.themeToggle.Clicked(gtx) {
-		l.toggleTheme()
-	}
-	for l.densityToggle.Clicked(gtx) {
-		l.toggleDensity()
-	}
-	for l.reindex.Clicked(gtx) {
-		l.commitIndexSettings()
-		l.settingsStatus = "Indexing documents…"
-		go documents.SetupDocs()
-	}
-	for l.back.Clicked(gtx) {
-		l.launcher()
-	}
-	blockedApps := apps.BlockedApplications()
-	for _, path := range blockedApps {
-		for l.unblockButton(path).Clicked(gtx) {
-			if err := apps.UnblockApplication(path); err != nil {
-				l.settingsStatus = "Could not unblock app: " + err.Error()
-			} else {
-				l.settingsStatus = "App unblocked."
-			}
-		}
-	}
-	blockedApps = apps.BlockedApplications()
-	editor := material.Editor(l.theme, &l.settings, "https://duckduckgo.com/?q=%s")
-	editor.TextSize = unit.Sp(13)
-	editor.Color = l.palette.text
-	editor.HintColor = l.palette.muted
-	rootsEditor := material.Editor(l.theme, &l.indexRoots, `%USERPROFILE%\Documents; D:\Projects`)
-	rootsEditor.TextSize = unit.Sp(13)
-	rootsEditor.Color = l.palette.text
-	rootsEditor.HintColor = l.palette.muted
-	exclusionsEditor := material.Editor(l.theme, &l.indexExclusions, `node_modules; venv; C:\Temp\Archive`)
-	exclusionsEditor.TextSize = unit.Sp(13)
-	exclusionsEditor.Color = l.palette.text
-	exclusionsEditor.HintColor = l.palette.muted
-	themeLabel := "Theme: Dark (switch to light)"
-	if l.lightTheme {
-		themeLabel = "Theme: Light (switch to dark)"
-	}
-	densityLabel := "Density: Comfortable (switch to compact)"
-	if l.compact {
-		densityLabel = "Density: Compact (switch to comfortable)"
-	}
-	widgets := []layout.Widget{
-		func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "SEARCH") },
-		func(gtx layout.Context) layout.Dimensions {
-			return l.settingNote(gtx, "URL template. %s is replaced with the query.")
-		},
-		func(gtx layout.Context) layout.Dimensions { return l.input(gtx, editor.Layout) },
-		func(gtx layout.Context) layout.Dimensions { return l.settingNote(gtx, l.settingsStatus) },
-		func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) },
-		func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "INDEXING") },
-		func(gtx layout.Context) layout.Dimensions {
-			return l.settingNote(gtx, "Folders to search, separated by semicolons. Changes apply when you leave Settings.")
-		},
-		func(gtx layout.Context) layout.Dimensions { return l.input(gtx, rootsEditor.Layout) },
-		func(gtx layout.Context) layout.Dimensions {
-			return l.settingNote(gtx, "Excluded folder names or absolute paths, separated by semicolons.")
-		},
-		func(gtx layout.Context) layout.Dimensions { return l.input(gtx, exclusionsEditor.Layout) },
-		func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.reindex, "Re-index now") },
-		func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) },
-		func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "APPEARANCE") },
-		func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.themeToggle, themeLabel) },
-		func(gtx layout.Context) layout.Dimensions { return l.menuButton(gtx, &l.densityToggle, densityLabel) },
-		func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) },
-		func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "STARTUP") },
-		func(gtx layout.Context) layout.Dimensions {
-			label := "Enable launch at sign-in"
-			if l.startupEnabled {
-				label = "Launch at sign-in: enabled"
-			}
-			return l.menuButton(gtx, &l.startup, label)
-		},
-		func(gtx layout.Context) layout.Dimensions { return l.separator(gtx) },
-		func(gtx layout.Context) layout.Dimensions { return l.section(gtx, "HIDDEN APPS") },
-		func(gtx layout.Context) layout.Dimensions {
-			return l.settingNote(gtx, "Hidden apps are excluded from app search.")
-		},
-	}
-	if len(blockedApps) == 0 {
-		widgets = append(widgets, func(gtx layout.Context) layout.Dimensions {
-			return l.settingNote(gtx, "No apps are hidden.")
-		})
-	}
-	for _, path := range blockedApps {
-		path := path
-		widgets = append(widgets, func(gtx layout.Context) layout.Dimensions {
-			return l.blockedAppRow(gtx, path)
-		})
-	}
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.heading(gtx, "Settings") }),
-		layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
-		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.scrollPage(gtx, widgets...) }),
-		layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, &l.back, "Back") }),
-	)
-}
-
-func (l *launcher) unblockButton(path string) *widget.Clickable {
-	button := l.unblockButtons[path]
-	if button == nil {
-		button = new(widget.Clickable)
-		l.unblockButtons[path] = button
-	}
-	return button
-}
-
-func (l *launcher) blockedAppRow(gtx layout.Context, path string) layout.Dimensions {
-	name := filepath.Base(path)
-	if name == "" || name == "." {
-		name = path
-	}
-	return layout.Inset{Bottom: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.label(gtx, name) }),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.settingNote(gtx, path) }),
-				)
-			}),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, l.unblockButton(path), "Unblock") }),
-		)
-	})
 }
 
 func (l *launcher) confirmationPage(gtx layout.Context) layout.Dimensions {
@@ -1419,6 +1378,9 @@ func (l *launcher) menuButton(gtx layout.Context, c *widget.Clickable, text stri
 
 func (l *launcher) resultButton(gtx layout.Context, c *widget.Clickable, row resultRow, selected bool) layout.Dimensions {
 	return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		pass := pointer.PassOp{}.Push(gtx.Ops)
+		event.Op(gtx.Ops, &l.resultContext[row.resourceIndex])
+		pass.Pop()
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		background := l.palette.row
 		if selected {
@@ -1449,6 +1411,7 @@ func (l *launcher) resultButton(gtx layout.Context, c *widget.Clickable, row res
 							}),
 						)
 					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.resultMoreButton(gtx, row.resourceIndex) }),
 				)
 			})
 		})
@@ -1504,11 +1467,11 @@ func (l *launcher) emptyResults(gtx layout.Context, state uiState) layout.Dimens
 			return style.Layout(gtx)
 		})
 	}
-	if state.message == "" {
-		return layout.Dimensions{Size: gtx.Constraints.Min}
-	}
 	if state.answer {
 		return l.quickAnswer(gtx, state.message)
+	}
+	if state.message == "" {
+		return layout.Dimensions{Size: gtx.Constraints.Min}
 	}
 	return l.centerMessage(gtx, state.message)
 }
@@ -1522,110 +1485,6 @@ func (l *launcher) centerMessage(gtx layout.Context, message string) layout.Dime
 		style.Truncator = "…"
 		return style.Layout(gtx)
 	})
-}
-
-func (l *launcher) quickAnswer(gtx layout.Context, message string) layout.Dimensions {
-	if l.answerMessage != message {
-		l.answerMessage = message
-		l.answerSpans = parseBasicMarkdown(message)
-		l.answerURLs = l.answerURLs[:0]
-		l.answerLinks = [maxAnswerLinks]widget.Clickable{}
-		for index := range l.answerSpans {
-			if l.answerSpans[index].url == "" || len(l.answerURLs) == maxAnswerLinks {
-				continue
-			}
-			l.answerURLs = append(l.answerURLs, l.answerSpans[index].url)
-		}
-		l.pageList.Position = layout.Position{}
-	}
-	for index, url := range l.answerURLs {
-		for l.answerLinks[index].Clicked(gtx) {
-			go func(url string) {
-				if err := utils.OpenURI(url); err != nil {
-					log.Printf("failed to open answer link: %v", err)
-				}
-			}(url)
-		}
-	}
-
-	lines := l.answerLines(gtx)
-	return material.List(l.theme, &l.pageList).Layout(gtx, len(lines), func(gtx layout.Context, index int) layout.Dimensions {
-		line := lines[index]
-		return layout.Inset{Bottom: unit.Dp(5)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			children := make([]layout.FlexChild, 0, len(line))
-			for _, atom := range line {
-				atom := atom
-				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return l.answerAtom(gtx, atom)
-				}))
-			}
-			return layout.Flex{Alignment: layout.Middle}.Layout(gtx, children...)
-		})
-	})
-}
-
-func (l *launcher) answerLines(gtx layout.Context) [][]answerAtom {
-	var lines [][]answerAtom
-	var line []answerAtom
-	width := 0
-	linkIndex := 0
-	for _, span := range l.answerSpans {
-		if span.url != "" {
-			link := -1
-			if linkIndex < len(l.answerURLs) {
-				link = linkIndex
-			}
-			l.addAnswerAtom(gtx, &lines, &line, &width, answerAtom{text: span.text, span: span, link: link})
-			linkIndex++
-			continue
-		}
-		for _, text := range splitMarkdownText(span.text) {
-			if text == "\n" && len(line) > 0 {
-				lines = append(lines, line)
-				line, width = nil, 0
-				continue
-			}
-			l.addAnswerAtom(gtx, &lines, &line, &width, answerAtom{text: text, span: span, link: -1})
-		}
-	}
-	if len(line) > 0 {
-		lines = append(lines, line)
-	}
-	return lines
-}
-
-func (l *launcher) addAnswerAtom(gtx layout.Context, lines *[][]answerAtom, line *[]answerAtom, width *int, atom answerAtom) {
-	measure := gtx
-	measure.Constraints.Min.X = 0
-	measure.Constraints.Max.X = 1 << 20
-	recording := op.Record(gtx.Ops)
-	dimensions := l.answerAtom(measure, atom)
-	recording.Stop()
-	if *width > 0 && *width+dimensions.Size.X > gtx.Constraints.Max.X {
-		*lines = append(*lines, *line)
-		*line, *width = nil, 0
-	}
-	if *width == 0 && strings.TrimSpace(atom.text) == "" {
-		return
-	}
-	*line = append(*line, atom)
-	*width += dimensions.Size.X
-}
-
-func (l *launcher) answerAtom(gtx layout.Context, atom answerAtom) layout.Dimensions {
-	style := material.Label(l.theme, unit.Sp(13), atom.text)
-	style.Color = l.palette.text
-	if atom.span.bold {
-		style.Font.Weight = font.Bold
-	}
-	if atom.span.italic {
-		style.Font.Style = font.Italic
-	}
-	if atom.link >= 0 {
-		style.Color = l.palette.accent
-		return l.answerLinks[atom.link].Layout(gtx, style.Layout)
-	}
-	return style.Layout(gtx)
 }
 
 func (l *launcher) statusBar(gtx layout.Context, state uiState) layout.Dimensions {
@@ -1695,6 +1554,13 @@ func (l *launcher) catalogStatusText(status apps.CatalogSnapshot) string {
 
 func (l *launcher) keyboardHint(gtx layout.Context, state uiState) layout.Dimensions {
 	hint := "> command   Esc hide   Alt+Space summon"
+	if state.answer {
+		hint = "Esc hide   Alt+Space return to answer"
+		if !state.loading {
+			hint = "Ctrl+C copy answer   " + hint
+		}
+		return l.statusText(gtx, hint)
+	}
 	if item, ok := l.selectedItem(); ok {
 		hint = "Enter open   Ctrl+C copy"
 		if item.Command != nil {

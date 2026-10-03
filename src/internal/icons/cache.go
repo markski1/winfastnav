@@ -6,9 +6,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const maxEntries = 256
+const checkInterval = time.Minute
 
 type Cache struct {
 	mu         sync.Mutex
@@ -16,7 +18,9 @@ type Cache struct {
 	missing    map[string]struct{}
 	loading    map[string]uint64
 	lastUsed   map[string]uint64
-	sourceKeys map[string]string
+	signatures map[string]string
+	nextCheck  map[string]time.Time
+	checking   map[string]bool
 	sequence   uint64
 	limit      int
 	generation uint64
@@ -29,28 +33,28 @@ func NewCache() *Cache {
 		missing:    make(map[string]struct{}),
 		loading:    make(map[string]uint64),
 		lastUsed:   make(map[string]uint64),
-		sourceKeys: make(map[string]string),
+		signatures: make(map[string]string),
+		nextCheck:  make(map[string]time.Time),
+		checking:   make(map[string]bool),
 		limit:      maxEntries,
 	}
 }
 
 func (c *Cache) Image(path string) image.Image {
-	baseKey, key := sourceKey(path)
-	if baseKey == "" {
+	key := strings.ToLower(path)
+	if key == "" {
 		return nil
 	}
 
 	c.mu.Lock()
-	if previousKey := c.sourceKeys[baseKey]; previousKey != "" && previousKey != key {
-		c.removeLocked(previousKey)
-		c.generation++
-		c.loading = make(map[string]uint64)
-	}
-	c.sourceKeys[baseKey] = key
 	icon := c.images[key]
 	_, missing := c.missing[key]
 	if icon != nil || missing {
 		c.touchLocked(key)
+		if !c.checking[key] && time.Now().After(c.nextCheck[key]) {
+			c.checking[key] = true
+			go c.refreshAsync(path, key, c.generation)
+		}
 		c.mu.Unlock()
 		return icon
 	}
@@ -64,6 +68,7 @@ func (c *Cache) Image(path string) image.Image {
 }
 
 func (c *Cache) loadAsync(path, key string, generation uint64) {
+	signature := sourceSignature(path)
 	icon := load(path)
 	c.mu.Lock()
 	if c.generation != generation || c.loading[key] != generation {
@@ -76,6 +81,8 @@ func (c *Cache) loadAsync(path, key string, generation uint64) {
 	} else {
 		c.images[key] = icon
 	}
+	c.signatures[key] = signature
+	c.nextCheck[key] = time.Now().Add(checkInterval)
 	c.touchLocked(key)
 	c.evictLocked()
 	changed := c.changed
@@ -85,30 +92,49 @@ func (c *Cache) loadAsync(path, key string, generation uint64) {
 	}
 }
 
+func (c *Cache) refreshAsync(path, key string, generation uint64) {
+	signature := sourceSignature(path)
+	c.mu.Lock()
+	if c.generation != generation || !c.checking[key] {
+		c.mu.Unlock()
+		return
+	}
+	delete(c.checking, key)
+	if signature == c.signatures[key] {
+		c.nextCheck[key] = time.Now().Add(checkInterval)
+		c.mu.Unlock()
+		return
+	}
+	c.removeLocked(key)
+	c.loading[key] = generation
+	c.mu.Unlock()
+	go c.loadAsync(path, key, generation)
+}
+
 func (c *Cache) Clear() {
 	c.mu.Lock()
 	c.images = make(map[string]image.Image)
 	c.missing = make(map[string]struct{})
 	c.loading = make(map[string]uint64)
 	c.lastUsed = make(map[string]uint64)
-	c.sourceKeys = make(map[string]string)
+	c.signatures = make(map[string]string)
+	c.nextCheck = make(map[string]time.Time)
+	c.checking = make(map[string]bool)
 	c.sequence = 0
 	c.generation++
 	c.mu.Unlock()
 }
 
 func (c *Cache) Invalidate(path string) {
-	baseKey := strings.ToLower(path)
-	if baseKey == "" {
+	key := strings.ToLower(path)
+	if key == "" {
 		return
 	}
 	c.mu.Lock()
-	if key := c.sourceKeys[baseKey]; key != "" {
-		c.removeLocked(key)
-	}
-	delete(c.sourceKeys, baseKey)
+	c.removeLocked(key)
 	c.generation++
 	c.loading = make(map[string]uint64)
+	c.checking = make(map[string]bool)
 	c.mu.Unlock()
 }
 
@@ -127,9 +153,20 @@ func (c *Cache) removeLocked(key string) {
 	delete(c.images, key)
 	delete(c.missing, key)
 	delete(c.lastUsed, key)
-	if baseKey, _, ok := strings.Cut(key, "\x00"); ok && c.sourceKeys[baseKey] == key {
-		delete(c.sourceKeys, baseKey)
+	delete(c.signatures, key)
+	delete(c.nextCheck, key)
+	delete(c.checking, key)
+}
+
+func sourceSignature(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "missing"
+		}
+		return "unknown"
 	}
+	return strconv.FormatInt(info.ModTime().UnixNano(), 10) + ":" + strconv.FormatInt(info.Size(), 10)
 }
 
 func (c *Cache) evictLocked() {
@@ -147,18 +184,4 @@ func (c *Cache) evictLocked() {
 		}
 		c.removeLocked(oldestKey)
 	}
-}
-
-func sourceKey(path string) (string, string) {
-	baseKey := strings.ToLower(path)
-	if baseKey == "" {
-		return "", ""
-	}
-	signature := "unknown"
-	if info, err := os.Stat(path); err == nil {
-		signature = strconv.FormatInt(info.ModTime().UnixNano(), 10) + ":" + strconv.FormatInt(info.Size(), 10)
-	} else if os.IsNotExist(err) {
-		signature = "missing"
-	}
-	return baseKey, baseKey + "\x00" + signature
 }
