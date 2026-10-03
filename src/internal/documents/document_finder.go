@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"time"
 	g "winfastnav/internal/globals"
 	"winfastnav/internal/settings"
+	"winfastnav/internal/storage"
 )
 
 const documentCacheVersion = 1
@@ -94,8 +96,8 @@ func Config() IndexConfig {
 }
 
 func LoadConfigFromSettings() {
-	rootsValue, _ := settings.GetSetting("indexroots")
-	exclusionsValue, _ := settings.GetSetting("indexexclusions")
+	rootsValue := settings.GetSetting("indexroots")
+	exclusionsValue := settings.GetSetting("indexexclusions")
 	config := IndexConfig{
 		Roots:      normalizeRoots(ParseIndexList(rootsValue)),
 		Exclusions: normalizeExclusions(ParseIndexList(exclusionsValue)),
@@ -347,19 +349,7 @@ func copyIndexConfig(config IndexConfig) IndexConfig {
 }
 
 func sameIndexConfig(left, right IndexConfig) bool {
-	return sameStrings(left.Roots, right.Roots) && sameStrings(left.Exclusions, right.Exclusions)
-}
-
-func sameStrings(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if !strings.EqualFold(left[index], right[index]) {
-			return false
-		}
-	}
-	return true
+	return slices.EqualFunc(left.Roots, right.Roots, strings.EqualFold) && slices.EqualFunc(left.Exclusions, right.Exclusions, strings.EqualFold)
 }
 
 func shouldSkipDirectory(path string, info os.FileInfo, config IndexConfig) bool {
@@ -448,31 +438,7 @@ func saveDocumentCache(cached documentCacheFile) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".documents-*.tmp")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := json.NewEncoder(temporary).Encode(cached); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, path)
+	return storage.WriteJSON(path, cached, "")
 }
 
 func isHiddenDir(info os.FileInfo) bool {

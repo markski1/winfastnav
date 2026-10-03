@@ -9,174 +9,41 @@ import (
 	"unicode"
 )
 
-func ConvertUnit(s string) string {
-	if result := convertDirectedUnit(s); result != "" {
+func ConvertUnit(input string) string {
+	if result := convertDirectedUnit(input); result != "" {
 		return result
 	}
-	s = strings.ToLower(strings.TrimSpace(s))
-	s = strings.ReplaceAll(s, ",", "")
-	s = strings.ReplaceAll(s, " ", "")
-
-	i := 0
-	if i < len(s) && (s[i] == '-' || s[i] == '+') {
-		i++
-	}
-	for i < len(s) && (s[i] == '.' || (s[i] >= '0' && s[i] <= '9')) {
-		i++
-	}
-	if i == 0 || i == len(s) {
+	input = strings.ToLower(strings.TrimSpace(input))
+	input = strings.ReplaceAll(strings.ReplaceAll(input, ",", ""), " ", "")
+	value, name, ok := parseQuantity(input)
+	source, known := directedUnits[name]
+	if !ok || !known {
 		return ""
 	}
-	numStr, unit := s[:i], s[i:]
-	val, err := strconv.ParseFloat(numStr, 64)
-	if err != nil {
-		return ""
-	}
-
-	switch unit {
-	case "pound", "pounds":
-		unit = "lb"
-	case "ounce", "ounces":
-		unit = "oz"
-	case "inch", "inches":
-		unit = "in"
-	case "foot", "feet":
-		unit = "ft"
-	case "lbs":
-		unit = "lb"
-	case "celsius":
-		unit = "c"
-	case "fahrenheit":
-		unit = "f"
-	case "kelvin":
-		unit = "k"
-	case "kph", "kmh":
-		unit = "km/h"
-	case "mps", "ms-1":
-		unit = "m/s"
-	case "fps", "ft/s":
-		unit = "ft/s"
-	}
-
-	var out []string
-	formatNumber := func(f float64) string {
-		s := fmt.Sprintf("%.2f", f)
-		if strings.HasSuffix(s, ".00") {
-			return strings.TrimSuffix(s, ".00")
+	var output []string
+	for _, targetName := range defaultUnitTargets[source.display] {
+		target := directedUnits[targetName]
+		converted := value / (target.factor / source.factor)
+		if source.group == "temperature" {
+			converted = convertTemperature(value, source, target)
 		}
-		return s
+		label := target.display
+		if targetName == "kmh" || targetName == "fps" {
+			label = targetName
+		}
+		output = append(output, strings.TrimSuffix(fmt.Sprintf("%.2f", converted), ".00")+" "+label)
 	}
+	return strings.Join(output, "\n")
+}
 
-	switch unit {
-	case "kg":
-		out = append(out, formatNumber(val*1000)+" g")
-		out = append(out, formatNumber(val*2.2046226218)+" lb")
-		out = append(out, formatNumber(val*35.27396195)+" oz")
-	case "g":
-		kg := val / 1000
-		out = append(out, formatNumber(kg)+" kg")
-		out = append(out, formatNumber(kg*2.2046226218)+" lb")
-		out = append(out, formatNumber(kg*35.27396195)+" oz")
-	case "lb":
-		kg := val / 2.2046226218
-		out = append(out, formatNumber(kg)+" kg")
-		out = append(out, formatNumber(kg*1000)+" g")
-		out = append(out, formatNumber(val*16)+" oz")
-	case "oz":
-		lb := val / 16
-		kg := lb / 2.2046226218
-		out = append(out, formatNumber(kg)+" kg")
-		out = append(out, formatNumber(kg*1000)+" g")
-		out = append(out, formatNumber(lb)+" lb")
-
-	case "m":
-		out = append(out, formatNumber(val*100)+" cm")
-		out = append(out, formatNumber(val*1000)+" mm")
-		out = append(out, formatNumber(val*39.37007874)+" in")
-		out = append(out, formatNumber(val*3.280839895)+" ft")
-	case "cm":
-		m := val / 100
-		out = append(out, formatNumber(m)+" m")
-		out = append(out, formatNumber(val*10)+" mm")
-		out = append(out, formatNumber(m*39.37007874)+" in")
-		out = append(out, formatNumber(m*3.280839895)+" ft")
-	case "mm":
-		cm := val / 10
-		m := cm / 100
-		out = append(out, formatNumber(m)+" m")
-		out = append(out, formatNumber(cm)+" cm")
-		out = append(out, formatNumber(m*39.37007874)+" in")
-		out = append(out, formatNumber(m*3.280839895)+" ft")
-	case "in":
-		m := val / 39.37007874
-		out = append(out, formatNumber(m)+" m")
-		out = append(out, formatNumber(m*100)+" cm")
-		out = append(out, formatNumber(m*1000)+" mm")
-		out = append(out, formatNumber(val/12)+" ft")
-	case "ft":
-		m := val / 3.280839895
-		out = append(out, formatNumber(m)+" m")
-		out = append(out, formatNumber(m*100)+" cm")
-		out = append(out, formatNumber(m*1000)+" mm")
-		out = append(out, formatNumber(val*12)+" in")
-
-	case "c":
-		c := val
-		f := c*9.0/5.0 + 32.0
-		k := c + 273.15
-		out = append(out, formatNumber(f)+" °F")
-		out = append(out, formatNumber(k)+" K")
-	case "f":
-		fv := val
-		c := (fv - 32.0) * 5.0 / 9.0
-		k := c + 273.15
-		out = append(out, formatNumber(c)+" °C")
-		out = append(out, formatNumber(k)+" K")
-	case "k":
-		kv := val
-		c := kv - 273.15
-		f := c*9.0/5.0 + 32.0
-		out = append(out, formatNumber(c)+" °C")
-		out = append(out, formatNumber(f)+" °F")
-
-	case "m/s":
-		ms := val
-		kmh := ms * 3.6
-		mph := ms * 2.2369362921
-		fts := ms * 3.280839895
-		out = append(out, formatNumber(kmh)+" kmh")
-		out = append(out, formatNumber(mph)+" mph")
-		out = append(out, formatNumber(fts)+" fps")
-	case "km/h":
-		kmh := val
-		ms := kmh / 3.6
-		mph := kmh * 0.6213711922
-		fts := ms * 3.280839895
-		out = append(out, formatNumber(ms)+" m/s")
-		out = append(out, formatNumber(mph)+" mph")
-		out = append(out, formatNumber(fts)+" fps")
-	case "mph":
-		mph := val
-		kmh := mph * 1.609344
-		ms := kmh / 3.6
-		fts := ms * 3.280839895
-		out = append(out, formatNumber(ms)+" m/s")
-		out = append(out, formatNumber(kmh)+" kmh")
-		out = append(out, formatNumber(fts)+" fps")
-	case "ft/s":
-		fts := val
-		ms := fts / 3.280839895
-		kmh := ms * 3.6
-		mph := ms * 2.2369362921
-		out = append(out, formatNumber(ms)+" m/s")
-		out = append(out, formatNumber(kmh)+" kmh")
-		out = append(out, formatNumber(mph)+" mph")
-
-	default:
-		return ""
-	}
-
-	return strings.Join(out, "\n")
+var defaultUnitTargets = map[string][]string{
+	"kg": {"g", "lb", "oz"}, "g": {"kg", "lb", "oz"},
+	"lb": {"kg", "g", "oz"}, "oz": {"kg", "g", "lb"},
+	"m": {"cm", "mm", "in", "ft"}, "cm": {"m", "mm", "in", "ft"},
+	"mm": {"m", "cm", "in", "ft"}, "in": {"m", "cm", "mm", "ft"}, "ft": {"m", "cm", "mm", "in"},
+	"°C": {"f", "k"}, "°F": {"c", "k"}, "K": {"c", "f"},
+	"m/s": {"kmh", "mph", "fps"}, "km/h": {"m/s", "mph", "fps"},
+	"mph": {"m/s", "kmh", "fps"}, "ft/s": {"m/s", "kmh", "mph"},
 }
 
 type unitDefinition struct {
@@ -198,7 +65,7 @@ var directedUnits = map[string]unitDefinition{
 	"ft": {"length", 0.3048, "ft"}, "foot": {"length", 0.3048, "ft"}, "feet": {"length", 0.3048, "ft"},
 	"yd": {"length", 0.9144, "yd"}, "yard": {"length", 0.9144, "yd"}, "yards": {"length", 0.9144, "yd"},
 	"mi": {"length", 1609.344, "mi"}, "mile": {"length", 1609.344, "mi"}, "miles": {"length", 1609.344, "mi"},
-	"m/s": {"speed", 1, "m/s"}, "mps": {"speed", 1, "m/s"},
+	"m/s": {"speed", 1, "m/s"}, "mps": {"speed", 1, "m/s"}, "ms-1": {"speed", 1, "m/s"},
 	"km/h": {"speed", 1 / 3.6, "km/h"}, "kmh": {"speed", 1 / 3.6, "km/h"}, "kph": {"speed", 1 / 3.6, "km/h"},
 	"mph": {"speed", 0.44704, "mph"}, "ft/s": {"speed", 0.3048, "ft/s"}, "fps": {"speed", 0.3048, "ft/s"},
 	"knot": {"speed", 0.514444444444, "kn"}, "knots": {"speed", 0.514444444444, "kn"}, "kn": {"speed", 0.514444444444, "kn"},
@@ -239,11 +106,7 @@ func convertDirectedUnit(input string) string {
 		return ""
 	}
 	if source.group == "temperature" {
-		converted, ok := convertTemperature(value, sourceName, targetName)
-		if !ok {
-			return ""
-		}
-		return formatNumber(converted) + " " + target.display
+		return formatNumber(convertTemperature(value, source, target)) + " " + target.display
 	}
 	return formatNumber(value*source.factor/target.factor) + " " + target.display
 }
@@ -265,28 +128,21 @@ func parseQuantity(input string) (float64, string, bool) {
 	return value, unit, ok && unit != ""
 }
 
-func convertTemperature(value float64, source, target string) (float64, bool) {
-	source = directedUnits[source].display
-	target = directedUnits[target].display
+func convertTemperature(value float64, source, target unitDefinition) float64 {
 	celsius := value
-	switch source {
+	switch source.display {
 	case "°F":
 		celsius = (value - 32) * 5 / 9
 	case "K":
 		celsius = value - 273.15
-	case "°C":
-	default:
-		return 0, false
 	}
-	switch target {
-	case "°C":
-		return celsius, true
+	switch target.display {
 	case "°F":
-		return celsius*9/5 + 32, true
+		return celsius*9/5 + 32
 	case "K":
-		return celsius + 273.15, true
+		return celsius + 273.15
 	default:
-		return 0, false
+		return celsius
 	}
 }
 

@@ -92,21 +92,5 @@ func (l *launcher) backPage() {
 }
 
 func (l *launcher) textSizeControls(gtx layout.Context) layout.Dimensions {
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageTitle(gtx, "Text size", unit.Sp(12)) }),
-		layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			labels := [3]string{"Default", "Large", "Larger"}
-			children := make([]layout.FlexChild, 0, 5)
-			for index, label := range labels {
-				if index > 0 {
-					children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout))
-				}
-				children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					return l.preferenceChoice(gtx, &l.textSizeChoices[index], label, l.textSizeIndex == index)
-				}))
-			}
-			return layout.Flex{}.Layout(gtx, children...)
-		}),
-	)
+	return column(unit.Dp(8), l.title("Text size", unit.Sp(12)), l.choiceGroup(l.textSizeChoices[:], []string{"Default", "Large", "Larger"}, l.textSizeIndex))(gtx)
 }

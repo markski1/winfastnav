@@ -223,9 +223,9 @@ func lightPalette() uiPalette {
 func SetupUI() {
 	theme := material.NewTheme()
 	theme.TextSize = unit.Sp(12.35)
-	themeSetting, _ := appsettings.GetSetting("theme")
-	densitySetting, _ := appsettings.GetSetting("density")
-	textSizeSetting, _ := appsettings.GetSetting("textsize")
+	themeSetting := appsettings.GetSetting("theme")
+	densitySetting := appsettings.GetSetting("density")
+	textSizeSetting := appsettings.GetSetting("textsize")
 	active = &launcher{
 		theme:          theme,
 		icons:          appicons.NewCache(),
@@ -384,14 +384,6 @@ func (l *launcher) updateState(update func(*uiState)) uiState {
 	return state
 }
 
-func ShowAbout() {
-	if active != nil {
-		active.updateState(func(state *uiState) {
-			state.page = pageAbout
-			state.focusSearch = false
-		})
-	}
-}
 func Quit() {
 	if active != nil {
 		if active.snapshot().page == pageSettings {
@@ -554,19 +546,8 @@ func (l *launcher) key(gtx layout.Context, event key.Event) {
 		if event.Name == key.NameEscape {
 			l.closeResultActions()
 		}
-		if event.Name == "C" && event.Modifiers.Contain(key.ModCtrl) {
-			l.executeResultAction(gtx, s.actionTarget, resultCopy)
-		}
-		if event.Name == key.NameReturn || event.Name == key.NameEnter {
-			if event.Modifiers.Contain(key.ModCtrl) {
-				l.executeResultAction(gtx, s.actionTarget, resultReveal)
-			}
-			if event.Modifiers.Contain(key.ModShift) {
-				l.executeResultAction(gtx, s.actionTarget, resultAdmin)
-			}
-		}
-		if event.Name == key.NameDeleteForward {
-			l.executeResultAction(gtx, s.actionTarget, resultHide)
+		if action, ok := resultShortcut(event); ok {
+			l.executeResultAction(gtx, s.actionTarget, action)
 		}
 		return
 	}
@@ -590,24 +571,12 @@ func (l *launcher) key(gtx layout.Context, event key.Event) {
 		l.openResultActions(s.selected)
 		return
 	}
-	if (event.Name == key.NameReturn || event.Name == key.NameEnter) && event.Modifiers.Contain(key.ModShift) {
-		l.runSelectedElevated()
-		return
-	}
-	if (event.Name == key.NameReturn || event.Name == key.NameEnter) && event.Modifiers.Contain(key.ModCtrl) {
-		l.revealSelected()
-		return
-	}
-	if (event.Name == key.NameReturn || event.Name == key.NameEnter) && event.Modifiers.Contain(key.ModAlt) {
-		l.revealSelected()
-		return
-	}
-	if event.Name == "C" && event.Modifiers.Contain(key.ModCtrl) {
-		if s.answer && !s.loading {
+	if action, ok := resultShortcut(event); ok {
+		if action == resultCopy && s.answer && !s.loading {
 			l.copyAnswer(gtx)
-			return
+		} else if item, ok := l.itemAt(s.selected); ok {
+			l.executeResultAction(gtx, item, action)
 		}
-		l.copySelected(gtx)
 		return
 	}
 
@@ -627,10 +596,6 @@ func (l *launcher) key(gtx layout.Context, event key.Event) {
 			l.open(gtx, s.selected)
 		} else {
 			l.submit(gtx, l.editor.Text())
-		}
-	case key.NameDeleteForward:
-		if s.selected >= 0 {
-			l.block(s.selected)
 		}
 	case key.NameHome:
 		l.selectResult(0)
@@ -913,15 +878,11 @@ func (l *launcher) selectResult(index int) {
 	}
 	l.updateState(func(state *uiState) { state.selected = index })
 }
+
 func (l *launcher) open(gtx layout.Context, index int) {
-	l.mu.RLock()
-	if index < 0 || index >= len(l.items) {
-		l.mu.RUnlock()
-		return
+	if item, ok := l.itemAt(index); ok {
+		l.openResource(gtx, item)
 	}
-	item := l.items[index]
-	l.mu.RUnlock()
-	l.openResource(gtx, item)
 }
 
 func (l *launcher) openResource(gtx layout.Context, item g.Resource) {
@@ -968,85 +929,11 @@ func (l *launcher) openResource(gtx layout.Context, item g.Resource) {
 	}
 	HideWindow()
 }
-func (l *launcher) block(index int) {
-	l.mu.RLock()
-	if index < 0 || index >= len(l.items) {
-		l.mu.RUnlock()
-		return
-	}
-	item := l.items[index]
-	l.mu.RUnlock()
-	if item.Computed || item.Document || item.Command != nil || item.WebSearch != "" || item.Assistant != "" {
-		return
-	}
-	apps.BlockApplication(item)
-	l.query(l.editor.Text())
-}
-
-func (l *launcher) selectedPath(index int) string {
-	if index < 0 {
-		return ""
-	}
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	if index >= len(l.items) {
-		return ""
-	}
-	path := l.items[index].Filepath
-	if !filepath.IsAbs(path) {
-		return ""
-	}
-	return path
-}
-
-func (l *launcher) revealSelected() {
-	path := l.selectedPath(l.snapshot().selected)
-	if path == "" {
-		return
-	}
-	if err := utils.RevealInFolder(path); err != nil {
-		log.Printf("failed to reveal %q in Explorer: %v", path, err)
-		l.message("Could not reveal the selected item in Explorer.")
-		return
-	}
-}
-
-func (l *launcher) copySelected(gtx layout.Context) {
-	item, ok := l.selectedItem()
-	if !ok || item.Command != nil {
-		return
-	}
-	value := item.Filepath
-	if item.Computed {
-		value = item.Name
-	}
-	l.copyText(gtx, value)
-}
 
 func (l *launcher) copyText(gtx layout.Context, value string) {
 	if value != "" {
 		gtx.Source.Execute(clipboard.WriteCmd{Type: "text/plain", Data: io.NopCloser(strings.NewReader(value))})
 	}
-}
-
-func (l *launcher) runSelectedElevated() {
-	item, ok := l.selectedItem()
-	if !ok {
-		return
-	}
-	l.runResourceElevated(item)
-}
-
-func (l *launcher) runResourceElevated(item g.Resource) {
-	if item.Computed || item.Document || item.Command != nil || item.WebSearch != "" || item.Assistant != "" {
-		return
-	}
-	if err := apps.RunProgramElevated(item.Filepath); err != nil {
-		l.message("The selected application cannot be run as administrator.")
-		return
-	}
-	recent.RecordSelection(l.editor.Text(), item.Filepath)
-	HideWindow()
 }
 
 func (l *launcher) executeSystemAction(item g.Resource) {
@@ -1065,8 +952,7 @@ func (l *launcher) executeSystemAction(item g.Resource) {
 	}()
 }
 
-func (l *launcher) selectedItem() (g.Resource, bool) {
-	index := l.snapshot().selected
+func (l *launcher) itemAt(index int) (g.Resource, bool) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	if index < 0 || index >= len(l.items) {
@@ -1082,8 +968,9 @@ func (l *launcher) clearItems() {
 }
 
 func (l *launcher) message(text string) {
-	l.updateState(func(state *uiState) { state.message = utils.WrapTextByWords(text, 64) })
+	l.updateState(func(state *uiState) { state.message = text })
 }
+
 func (l *launcher) launcher() {
 	if l.snapshot().page == pageSettings {
 		l.commitIndexSettings(false)
@@ -1356,6 +1243,7 @@ func (l *launcher) confirmationPage(gtx layout.Context) layout.Dimensions {
 		}),
 	)
 }
+
 func (l *launcher) button(gtx layout.Context, c *widget.Clickable, text string) layout.Dimensions {
 	b := material.Button(l.theme, c, text)
 	b.Background = l.palette.button
@@ -1368,12 +1256,6 @@ func (l *launcher) button(gtx layout.Context, c *widget.Clickable, text string) 
 	}
 	b.Inset = layout.Inset{Top: vertical, Bottom: vertical, Left: unit.Dp(9), Right: unit.Dp(9)}
 	return b.Layout(gtx)
-}
-
-func (l *launcher) menuButton(gtx layout.Context, c *widget.Clickable, text string) layout.Dimensions {
-	return layout.Inset{Bottom: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return l.button(gtx, c, text)
-	})
 }
 
 func (l *launcher) resultButton(gtx layout.Context, c *widget.Clickable, row resultRow, selected bool) layout.Dimensions {
@@ -1561,20 +1443,27 @@ func (l *launcher) keyboardHint(gtx layout.Context, state uiState) layout.Dimens
 		}
 		return l.statusText(gtx, hint)
 	}
-	if item, ok := l.selectedItem(); ok {
-		hint = "Enter open   Ctrl+C copy"
-		if item.Command != nil {
-			hint = "Enter run"
+	if item, ok := l.itemAt(state.selected); ok {
+		var hints []string
+		for _, choice := range actionsForResult(item) {
+			switch choice.action {
+			case resultOpen:
+				hints = append(hints, "Enter open")
+				if item.Command != nil {
+					hints[len(hints)-1] = "Enter run"
+				}
+			case resultCopy:
+				if item.Computed {
+					hints = append(hints, "Enter copy")
+				}
+				hints = append(hints, "Ctrl+C copy")
+			case resultReveal:
+				hints = append(hints, "Ctrl+Enter reveal")
+			case resultAdmin:
+				hints = append(hints, "Shift+Enter admin")
+			}
 		}
-		if item.Computed {
-			hint = "Enter copy   Ctrl+C copy"
-		}
-		if l.selectedPath(state.selected) != "" {
-			hint += "   Ctrl+Enter reveal"
-		}
-		if !item.Computed && !item.Document && filepath.IsAbs(item.Filepath) {
-			hint += "   Shift+Enter admin"
-		}
+		hint = strings.Join(hints, "   ")
 	}
 	return l.statusText(gtx, hint)
 }
@@ -1598,29 +1487,7 @@ func (l *launcher) statusMenuButton(gtx layout.Context) layout.Dimensions {
 }
 
 func (l *launcher) input(gtx layout.Context, content layout.Widget) layout.Dimensions {
-	return layout.Background{}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		paint.FillShape(gtx.Ops, l.palette.input, clip.Rect{Max: gtx.Constraints.Min}.Op())
-		return layout.Dimensions{Size: gtx.Constraints.Min}
-	}, func(gtx layout.Context) layout.Dimensions {
-		return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, content)
-	})
-}
-
-func (l *launcher) section(gtx layout.Context, text string) layout.Dimensions {
-	style := material.Body1(l.theme, text)
-	style.Color = l.palette.secondary
-	return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(3)}.Layout(gtx, style.Layout)
-}
-
-func (l *launcher) settingNote(gtx layout.Context, value string) layout.Dimensions {
-	if value == "" {
-		return layout.Dimensions{}
-	}
-	style := material.Label(l.theme, unit.Sp(10.5), value)
-	style.Color = l.palette.secondary
-	style.MaxLines = 1
-	style.Truncator = "…"
-	return layout.Inset{Bottom: unit.Dp(4)}.Layout(gtx, style.Layout)
+	return l.surface(gtx, l.palette.input, inset(layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(10), Right: unit.Dp(10)}, content))
 }
 
 func (l *launcher) separator(gtx layout.Context) layout.Dimensions {
@@ -1628,11 +1495,13 @@ func (l *launcher) separator(gtx layout.Context) layout.Dimensions {
 	paint.FillShape(gtx.Ops, l.palette.surfaceEdge, clip.Rect{Max: size}.Op())
 	return layout.Dimensions{Size: size}
 }
+
 func (l *launcher) label(gtx layout.Context, text string) layout.Dimensions {
 	s := material.Body1(l.theme, text)
 	s.Color = l.palette.text
 	return s.Layout(gtx)
 }
+
 func (l *launcher) heading(gtx layout.Context, text string) layout.Dimensions {
 	s := material.H6(l.theme, text)
 	s.Color = l.palette.text

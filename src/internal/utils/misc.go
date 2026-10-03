@@ -54,57 +54,6 @@ func HttpGet(url string) (string, error) {
 	return string(body), nil
 }
 
-func WrapTextByWords(s string, maxLen int) string {
-	if maxLen <= 0 {
-		return s
-	}
-
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		lines[i] = wrapLine(line, maxLen)
-	}
-	return strings.Join(lines, "\n")
-}
-
-func wrapLine(line string, maxLen int) string {
-	words := strings.Fields(line)
-	if len(words) == 0 {
-		return line
-	}
-
-	var b strings.Builder
-	var lineLen int
-	for _, w := range words {
-		wLen := len([]rune(w))
-		if lineLen == 0 {
-			b.WriteString(w)
-			lineLen = wLen
-		} else if lineLen+1+wLen <= maxLen {
-			b.WriteByte(' ')
-			b.WriteString(w)
-			lineLen += 1 + wLen
-		} else {
-			b.WriteRune('\n')
-			b.WriteString(w)
-			lineLen = wLen
-		}
-	}
-	return b.String()
-}
-
-func ContainsAny(s string, subs []string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
-	}
-	return false
-}
-
-func AddToStartup() error {
-	return SetStartupEnabled(true)
-}
-
 func SetStartupEnabled(enabled bool) error {
 	exePath, err := os.Executable()
 	if err != nil {

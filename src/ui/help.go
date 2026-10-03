@@ -3,7 +3,6 @@ package ui
 import (
 	"gioui.org/layout"
 	"gioui.org/unit"
-	"gioui.org/widget/material"
 )
 
 type helpPane uint8
@@ -32,32 +31,10 @@ func (l *launcher) helpPage(gtx layout.Context) layout.Dimensions {
 			}
 		}
 	}
-	for l.back.Clicked(gtx) {
-		l.backPage()
+	sidebar := func(gtx layout.Context) layout.Dimensions {
+		return l.paneSidebar(gtx, helpPaneTitles[:], l.helpNav[:], int(l.helpPane))
 	}
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageHeader(gtx, "Help") }),
-		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return l.paneSidebar(gtx, helpPaneTitles[:], l.helpNav[:], int(l.helpPane))
-				}),
-				layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					return l.pageSurface(gtx, l.palette.surface, func(gtx layout.Context) layout.Dimensions {
-						return layout.UniformInset(unit.Dp(16)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return material.List(l.theme, &l.helpList).LayoutWidgets(gtx, l.helpPaneWidgets()...)
-						})
-					})
-				}),
-			)
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return l.pageDescription(gtx, "Esc returns to Menu.")
-			})
-		}),
-	)
+	return l.panePage(gtx, "Help", sidebar, &l.helpList, "Esc returns to Menu.", l.helpPaneWidgets()...)
 }
 
 func (l *launcher) helpPaneWidgets() []layout.Widget {
@@ -109,28 +86,12 @@ func (l *launcher) helpPaneWidgets() []layout.Widget {
 			{"Esc", "Hide the launcher or leave a page."},
 		}
 	}
-	widgets := []layout.Widget{func(gtx layout.Context) layout.Dimensions {
-		return layout.Inset{Bottom: unit.Dp(16)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageTitle(gtx, title, unit.Sp(16)) }),
-				layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageDescription(gtx, description) }),
-			)
-		})
-	}}
+	widgets := []layout.Widget{inset(layout.Inset{Bottom: unit.Dp(16)}, column(unit.Dp(6), l.title(title, unit.Sp(16)), l.description(description)))}
 	for _, entry := range entries {
 		widgets = append(widgets, func(gtx layout.Context) layout.Dimensions { return l.helpRow(gtx, entry) })
 	}
 	for _, note := range notes {
-		widgets = append(widgets, func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: unit.Dp(14)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageTitle(gtx, note.example, unit.Sp(12)) }),
-					layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageDescription(gtx, note.description) }),
-				)
-			})
-		})
+		widgets = append(widgets, inset(layout.Inset{Top: unit.Dp(14)}, column(unit.Dp(6), l.title(note.example, unit.Sp(12)), l.description(note.description))))
 	}
 	return widgets
 }
@@ -141,14 +102,10 @@ func (l *launcher) helpRow(gtx layout.Context, entry helpEntry) layout.Dimension
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				width := min(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(128)))
 				gtx.Constraints.Min.X, gtx.Constraints.Max.X = width, width
-				return l.pageSurface(gtx, l.palette.input, func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return l.pageTitle(gtx, entry.example, unit.Sp(11))
-					})
-				})
+				return l.surface(gtx, l.palette.input, inset(layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(8), Right: unit.Dp(8)}, l.title(entry.example, unit.Sp(11))))
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.pageDescription(gtx, entry.description) }),
+			layout.Flexed(1, l.description(entry.description)),
 		)
 	})
 }

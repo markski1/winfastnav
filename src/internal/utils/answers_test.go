@@ -40,12 +40,21 @@ func TestDateAnswers(t *testing.T) {
 	}
 }
 
-func TestDirectedUnitConversions(t *testing.T) {
+func TestUnitConversions(t *testing.T) {
 	tests := map[string]string{
 		"10 km to miles": "6.21371192237 mi",
 		"32 f to c":      "0 °C",
 		"1 GiB to MiB":   "1024 MiB",
 		"2 hours in min": "120 min",
+		"1 kg":           "1000 g\n2.20 lb\n35.27 oz",
+		"12 inches":      "0.30 m\n30.48 cm\n304.80 mm\n1 ft",
+		"36 kph":         "10 m/s\n22.37 mph\n32.81 fps",
+		"32 fahrenheit":  "0 °C\n273.15 K",
+		"1,000 g":        "1 kg\n2.20 lb\n35.27 oz",
+		"10 m to kg":     "",
+		"10 unknown":     "",
+		"m":              "",
+		"":               "",
 	}
 	for query, want := range tests {
 		if got := ConvertUnit(query); got != want {

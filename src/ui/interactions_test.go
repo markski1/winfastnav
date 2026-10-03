@@ -18,7 +18,7 @@ func TestQuickAnswerControlsAndPreservation(t *testing.T) {
 		reply  chan string
 	}
 	requests := make(chan request, 2)
-	l := pagesTestLauncher()
+	l := testLauncher(pageMenu)
 	l.state = uiState{page: pageLauncher, visible: true, query: "a question"}
 	l.pageList.Axis = layout.Vertical
 	l.answerFetch = func(prompt string) string {
@@ -38,7 +38,7 @@ func TestQuickAnswerControlsAndPreservation(t *testing.T) {
 	l.prepareHide()
 	l.prepareShow()
 	var router input.Router
-	gtx := settingsTestContext(1)
+	gtx := testContext()
 	gtx.Source = router.Source()
 	l.answerCopy.Click()
 	l.quickAnswer(gtx, l.snapshot().message)
@@ -86,23 +86,23 @@ func TestAnswerPlainText(t *testing.T) {
 }
 
 func TestBackNavigationRemembersPane(t *testing.T) {
-	l := settingsTestLauncher()
+	l := testLauncher(pageSettings)
 	l.helpPane, l.settingsPane = helpTools, settingsAppearance
 	for _, page := range []page{pageSettings, pageHelp, pageAbout} {
 		l.state.page = page
-		l.key(settingsTestContext(1), key.Event{Name: key.NameEscape})
+		l.key(testContext(), key.Event{Name: key.NameEscape})
 		if l.snapshot().page != pageMenu {
 			t.Fatalf("Esc from %d did not return to Menu", page)
 		}
 	}
 	l.help.Click()
-	l.menuPage(settingsTestContext(1))
+	l.menuPage(testContext())
 	if l.snapshot().page != pageHelp || l.helpPane != helpTools {
 		t.Fatal("Help forgot its pane")
 	}
 	l.backPage()
 	l.settingsButton.Click()
-	l.menuPage(settingsTestContext(1))
+	l.menuPage(testContext())
 	if l.snapshot().page != pageSettings || l.settingsPane != settingsAppearance {
 		t.Fatal("Settings forgot its pane")
 	}
@@ -114,7 +114,7 @@ func TestBackNavigationRemembersPane(t *testing.T) {
 }
 
 func TestStartupToggleAndSaveFailure(t *testing.T) {
-	l := settingsTestLauncher()
+	l := testLauncher(pageSettings)
 	var saved []bool
 	l.startupSet = func(enabled bool) error { saved = append(saved, enabled); return nil }
 	l.setStartup(true)
@@ -131,19 +131,14 @@ func TestStartupToggleAndSaveFailure(t *testing.T) {
 }
 
 func TestStartupSwitchKeyboard(t *testing.T) {
-	l := settingsTestLauncher()
+	l := testLauncher(pageSettings)
 	l.state.page = pageSettings
 	var saved []bool
 	l.startupSet = func(enabled bool) error { saved = append(saved, enabled); return nil }
 	var router input.Router
-	gtx := settingsTestContext(1)
+	gtx := testContext()
 	gtx.Source = router.Source()
-	frame := func() {
-		gtx.Ops.Reset()
-		l.update(gtx)
-		l.settingsPage(gtx)
-		router.Frame(gtx.Ops)
-	}
+	frame := func() { testFrame(l, &router, gtx, l.settingsPage) }
 	frame()
 	gtx.Execute(key.FocusCmd{Tag: &l.startupSwitch})
 	frame()
@@ -159,11 +154,11 @@ func TestStartupSwitchKeyboard(t *testing.T) {
 
 func TestTextSizeAndPendingFolderFeedback(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
-	l := settingsTestLauncher()
+	l := testLauncher(pageSettings)
 	l.setTextSize(2)
-	value, err := appsettings.GetSetting("textsize")
-	if err != nil || value != "larger" || textSizeIndexForSetting(value) != 2 || textSizeScale(l.textSizeIndex) != 1.3 {
-		t.Fatalf("text size did not persist: %q, %v", value, err)
+	value := appsettings.GetSetting("textsize")
+	if value != "larger" || textSizeIndexForSetting(value) != 2 || textSizeScale(l.textSizeIndex) != 1.3 {
+		t.Fatalf("text size did not persist: %q", value)
 	}
 	l.indexRoots.SetText(`C:\Documents; D:\New`)
 	if !strings.Contains(l.settingsSaveStatus(), "Text size saved.") || !strings.Contains(l.settingsSaveStatus(), "Folder changes pending.") {

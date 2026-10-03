@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strings"
 
-	"gioui.org/font"
 	"gioui.org/layout"
 	"gioui.org/unit"
 	"gioui.org/widget"
@@ -82,9 +81,6 @@ func (l *launcher) settingsPage(gtx layout.Context) layout.Dimensions {
 	for l.reindex.Clicked(gtx) {
 		l.commitIndexSettings(true)
 	}
-	for l.back.Clicked(gtx) {
-		l.backPage()
-	}
 	for _, path := range apps.BlockedApplications() {
 		for l.unblockButton(path).Clicked(gtx) {
 			if err := apps.UnblockApplication(path); err != nil {
@@ -95,27 +91,7 @@ func (l *launcher) settingsPage(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageHeader(gtx, "Settings") }),
-		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{}.Layout(gtx,
-				layout.Rigid(l.settingsSidebar),
-				layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					return l.pageSurface(gtx, l.palette.surface, func(gtx layout.Context) layout.Dimensions {
-						return layout.UniformInset(unit.Dp(16)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return material.List(l.theme, &l.settingsList).LayoutWidgets(gtx, l.settingsPaneWidgets()...)
-						})
-					})
-				}),
-			)
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return l.pageDescription(gtx, l.settingsSaveStatus())
-			})
-		}),
-	)
+	return l.panePage(gtx, "Settings", l.settingsSidebar, &l.settingsList, l.settingsSaveStatus(), l.settingsPaneWidgets()...)
 }
 
 func (l *launcher) settingsSidebar(gtx layout.Context) layout.Dimensions {
@@ -124,15 +100,7 @@ func (l *launcher) settingsSidebar(gtx layout.Context) layout.Dimensions {
 
 func (l *launcher) settingsPaneWidgets() []layout.Widget {
 	header := func(title, description string) layout.Widget {
-		return func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Bottom: unit.Dp(20)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageTitle(gtx, title, unit.Sp(16)) }),
-					layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageDescription(gtx, description) }),
-				)
-			})
-		}
+		return inset(layout.Inset{Bottom: unit.Dp(20)}, column(unit.Dp(6), l.title(title, unit.Sp(16)), l.description(description)))
 	}
 	switch l.settingsPane {
 	case settingsAppearance:
@@ -161,23 +129,14 @@ func (l *launcher) settingsPaneWidgets() []layout.Widget {
 					return l.button(gtx, &l.reindex, "Re-index now")
 				})
 			},
-			func(gtx layout.Context) layout.Dimensions {
-				return l.pageDescription(gtx, "Re-index applies folder changes immediately.")
-			},
+			l.description("Re-index applies folder changes immediately."),
 		}
 	case settingsHiddenApps:
 		widgets := []layout.Widget{header("Hidden apps", "Restore apps you’ve hidden from search.")}
 		paths := apps.BlockedApplications()
 		if len(paths) == 0 {
-			return append(widgets, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageTitle(gtx, "No hidden apps", unit.Sp(13)) }),
-					layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return l.pageDescription(gtx, "Press Delete on an app in search results to hide it. You can restore it here later.")
-					}),
-				)
-			})
+			return append(widgets, column(unit.Dp(8), l.title("No hidden apps", unit.Sp(13)),
+				l.description("Press Delete on an app in search results to hide it. You can restore it here later.")))
 		}
 		for _, path := range paths {
 			widgets = append(widgets, func(gtx layout.Context) layout.Dimensions { return l.blockedAppRow(gtx, path) })
@@ -189,33 +148,23 @@ func (l *launcher) settingsPaneWidgets() []layout.Widget {
 			func(gtx layout.Context) layout.Dimensions {
 				return l.settingsField(gtx, "Web search URL", "Use %s where the search query should go.", "https://duckduckgo.com/?q=%s", &l.settings)
 			},
-			func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return l.pageTitle(gtx, "Launch at sign-in", unit.Sp(12))
-					}),
-					layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return l.pageDescription(gtx, "Start winfastnav automatically when you sign in.")
-					}),
-					layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return material.Switch(l.theme, &l.startupSwitch, "Launch at sign-in").Layout(gtx)
-							}),
-							layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								label := "Off"
-								if l.startupEnabled {
-									label = "On"
-								}
-								return l.pageDescription(gtx, label)
-							}),
-						)
-					}),
-				)
-			},
+			column(unit.Dp(6), l.title("Launch at sign-in", unit.Sp(12)),
+				l.description("Start winfastnav automatically when you sign in."),
+				inset(layout.Inset{Top: unit.Dp(4)}, func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return material.Switch(l.theme, &l.startupSwitch, "Launch at sign-in").Layout(gtx)
+						}),
+						layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							label := "Off"
+							if l.startupEnabled {
+								label = "On"
+							}
+							return l.description(label)(gtx)
+						}),
+					)
+				})),
 		}
 	}
 }
@@ -225,51 +174,22 @@ func (l *launcher) settingsField(gtx layout.Context, title, description, hint st
 	editor.TextSize = unit.Sp(13)
 	editor.Color = l.palette.text
 	editor.HintColor = l.palette.muted
-	return layout.Inset{Bottom: unit.Dp(20)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageTitle(gtx, title, unit.Sp(12)) }),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.input(gtx, editor.Layout) }),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageDescription(gtx, description) }),
-		)
-	})
+	return inset(layout.Inset{Bottom: unit.Dp(20)}, column(0,
+		l.title(title, unit.Sp(12)),
+		inset(layout.Inset{Top: unit.Dp(8)}, func(gtx layout.Context) layout.Dimensions { return l.input(gtx, editor.Layout) }),
+		inset(layout.Inset{Top: unit.Dp(6)}, l.description(description)),
+	))(gtx)
 }
 
 func (l *launcher) settingsChoices(gtx layout.Context, title, description string, choices *[2]widget.Clickable, labels [2]string, secondSelected bool) layout.Dimensions {
-	return layout.Inset{Bottom: unit.Dp(16)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageTitle(gtx, title, unit.Sp(12)) }),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageDescription(gtx, description) }),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				choice := func(index int) layout.Widget {
-					return func(gtx layout.Context) layout.Dimensions {
-						return l.preferenceChoice(gtx, &choices[index], labels[index], secondSelected == (index == 1))
-					}
-				}
-				return layout.Flex{}.Layout(gtx,
-					layout.Flexed(1, choice(0)),
-					layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
-					layout.Flexed(1, choice(1)),
-				)
-			}),
-		)
-	})
-}
-
-func (l *launcher) preferenceChoice(gtx layout.Context, choice *widget.Clickable, label string, selected bool) layout.Dimensions {
-	style := material.Button(l.theme, choice, label)
-	style.TextSize = unit.Sp(12)
-	style.Color, style.Background = l.palette.text, l.palette.input
-	style.CornerRadius = 0
-	style.Inset = layout.UniformInset(unit.Dp(10))
-	if selected {
-		style.Background = l.palette.selected
-		style.Font.Weight = font.Medium
+	selected := 0
+	if secondSelected {
+		selected = 1
 	}
-	return style.Layout(gtx)
+	return inset(layout.Inset{Bottom: unit.Dp(16)}, column(unit.Dp(6),
+		l.title(title, unit.Sp(12)), l.description(description),
+		inset(layout.Inset{Top: unit.Dp(4)}, l.choiceGroup(choices[:], labels[:], selected)),
+	))(gtx)
 }
 
 func (l *launcher) setStartup(enabled bool) {
@@ -319,23 +239,20 @@ func (l *launcher) unblockButton(path string) *widget.Clickable {
 
 func (l *launcher) blockedAppRow(gtx layout.Context, path string) layout.Dimensions {
 	return layout.Inset{Bottom: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return l.pageSurface(gtx, l.palette.row, func(gtx layout.Context) layout.Dimensions {
+		return l.surface(gtx, l.palette.row, func(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return l.resultText(gtx, filepath.Base(path), unit.Sp(12), l.palette.text)
-							}),
-							layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								style := material.Label(l.theme, unit.Sp(10.5), path)
-								style.Color = l.palette.secondary
-								style.MaxLines = 2
-								return style.Layout(gtx)
-							}),
-						)
-					}),
+					layout.Flexed(1, column(unit.Dp(4),
+						func(gtx layout.Context) layout.Dimensions {
+							return l.resultText(gtx, filepath.Base(path), unit.Sp(12), l.palette.text)
+						},
+						func(gtx layout.Context) layout.Dimensions {
+							style := material.Label(l.theme, unit.Sp(10.5), path)
+							style.Color = l.palette.secondary
+							style.MaxLines = 2
+							return style.Layout(gtx)
+						},
+					)),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(10)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.button(gtx, l.unblockButton(path), "Restore") }),
 				)

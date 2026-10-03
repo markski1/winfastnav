@@ -1,7 +1,6 @@
 package apps
 
 import (
-	"path/filepath"
 	"testing"
 
 	g "winfastnav/internal/globals"
@@ -41,13 +40,6 @@ func TestAppsFolderPathsAreLaunchable(t *testing.T) {
 	}
 	if !isAppsFolderPath(path) {
 		t.Fatalf("isAppsFolderPath(%q) = false, want true", path)
-	}
-}
-
-func TestCalculatorResource(t *testing.T) {
-	calculator := calculatorResource()
-	if calculator.Name != "Calculator" || filepath.Base(calculator.Filepath) != "calc.exe" {
-		t.Fatalf("calculatorResource() = %#v", calculator)
 	}
 }
 

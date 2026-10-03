@@ -20,6 +20,8 @@ func TestResultActionAvailability(t *testing.T) {
 		want []resultAction
 	}{
 		{"app", g.Resource{Filepath: `C:\Apps\app.exe`}, []resultAction{resultOpen, resultReveal, resultCopy, resultAdmin, resultHide}},
+		{"shortcut", g.Resource{Filepath: `C:\Apps\app.lnk`}, []resultAction{resultOpen, resultReveal, resultCopy, resultHide}},
+		{"store app", g.Resource{Filepath: `shell:AppsFolder\Example!App`}, []resultAction{resultOpen, resultCopy, resultHide}},
 		{"document", g.Resource{Filepath: `C:\Docs\report.pdf`, Document: true}, []resultAction{resultOpen, resultReveal, resultCopy}},
 		{"computed", g.Resource{Name: "42", Computed: true}, []resultAction{resultCopy}},
 		{"assistant", g.Resource{Assistant: "question"}, []resultAction{resultOpen}},
@@ -38,14 +40,46 @@ func TestResultActionAvailability(t *testing.T) {
 	}
 }
 
+func TestResultCopyShortcutUsesSameRulesAsMenu(t *testing.T) {
+	for _, menu := range []bool{false, true} {
+		for _, item := range []g.Resource{
+			{Name: "42", Computed: true},
+			{Filepath: `C:\Docs\report.pdf`, Document: true},
+			{Filepath: `shell:AppsFolder\Example!App`},
+			{Assistant: "question", Filepath: "should not copy"},
+		} {
+			l := testLauncher(pageLauncher)
+			l.items, l.state.selected = []g.Resource{item}, 0
+			if menu {
+				l.openResultActions(0)
+			}
+			var router input.Router
+			gtx := testContext()
+			gtx.Source = router.Source()
+			l.key(gtx, key.Event{Name: "C", Modifiers: key.ModCtrl})
+			_, data, copied := router.WriteClipboard()
+			want := item.Filepath
+			if item.Computed {
+				want = item.Name
+			}
+			if item.Assistant != "" {
+				want = ""
+			}
+			if string(data) != want || copied != (want != "") {
+				t.Fatalf("menu=%v item=%+v: copied=%v value=%q", menu, item, copied, data)
+			}
+		}
+	}
+}
+
 func TestResultMenuKeepsClickedTarget(t *testing.T) {
-	l := pagesTestLauncher()
+	l := testLauncher(pageMenu)
 	l.state.page = pageLauncher
 	l.items = []g.Resource{{Name: "42", Computed: true}}
 	l.openResultActions(0)
 	l.items[0] = g.Resource{Name: "99", Computed: true}
 	var router input.Router
-	gtx := settingsTestContext(1)
+	gtx := testContext()
 	gtx.Source = router.Source()
 	l.refreshPending.Store(true)
 	l.update(gtx)
@@ -61,19 +95,14 @@ func TestResultMenuKeepsClickedTarget(t *testing.T) {
 
 func TestResultMenuPointerAndKeyboard(t *testing.T) {
 	for _, secondary := range []bool{true, false} {
-		l := pagesTestLauncher()
+		l := testLauncher(pageMenu)
 		l.state = uiState{page: pageLauncher, resultCount: 1, selected: 0}
 		l.items = []g.Resource{{Name: "42", Computed: true}}
 		l.list.Axis = layout.Vertical
 		var router input.Router
-		gtx := settingsTestContext(1)
+		gtx := testContext()
 		gtx.Source = router.Source()
-		frame := func() {
-			gtx.Ops.Reset()
-			l.update(gtx)
-			l.layout(gtx)
-			router.Frame(gtx.Ops)
-		}
+		frame := func() { testFrame(l, &router, gtx, l.layout) }
 		frame()
 		buttons, position := pointer.ButtonSecondary, f32.Pt(100, 80)
 		if !secondary {
@@ -111,11 +140,11 @@ func TestPopupStaysWithinWindow(t *testing.T) {
 }
 
 func TestResultMenuKeyboardNavigationAndDismissal(t *testing.T) {
-	l := pagesTestLauncher()
+	l := testLauncher(pageMenu)
 	l.state = uiState{page: pageLauncher, selected: 0}
 	l.items = []g.Resource{{Name: "Report", Filepath: `C:\Docs\report.pdf`, Document: true}}
 	var router input.Router
-	gtx := settingsTestContext(1)
+	gtx := testContext()
 	gtx.Source = router.Source()
 	frame := func() {
 		gtx.Ops.Reset()

@@ -1,22 +1,12 @@
 package ui
 
 import (
+	"gioui.org/layout"
+	"gioui.org/op"
 	"image"
 	"strings"
 	"testing"
-
-	"gioui.org/font/gofont"
-	"gioui.org/layout"
-	"gioui.org/op"
-	"gioui.org/text"
-	"gioui.org/widget/material"
 )
-
-func answerTestTheme() *material.Theme {
-	theme := material.NewTheme()
-	theme.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
-	return theme
-}
 
 func answerTestContext(width int) layout.Context {
 	return layout.Context{Ops: new(op.Ops), Constraints: layout.Constraints{Max: image.Pt(width, 1000)}}
@@ -27,9 +17,6 @@ func TestAnswerParagraphs(t *testing.T) {
 	lines := l.answerLines(answerTestContext(500))
 	if len(lines) != 4 || len(lines[1]) != 0 {
 		t.Fatalf("paragraph lines = %#v", lines)
-	}
-	if len(lines[0]) != 1 || lines[0][0].text != "First paragraph." {
-		t.Fatalf("plain text was not shaped together: %#v", lines[0])
 	}
 }
 

@@ -3,14 +3,15 @@ package settings
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	g "winfastnav/internal/globals"
+	"winfastnav/internal/storage"
 )
 
 type Settings map[string]string
@@ -25,7 +26,7 @@ var (
 
 func SetupSettings() {
 	var blocklist []string
-	stored, _ := GetSetting("blocklist")
+	stored := GetSetting("blocklist")
 	if stored != "" {
 		if err := json.Unmarshal([]byte(stored), &blocklist); err != nil {
 			log.Printf("Error parsing blocklist: %v", err)
@@ -36,7 +37,7 @@ func SetupSettings() {
 	}
 	g.ExecBlocklist = blocklist
 
-	g.SearchString, _ = GetSetting("searchstring")
+	g.SearchString = GetSetting("searchstring")
 	if g.SearchString == "" {
 		g.SearchString = "https://duckduckgo.com/?q=%s"
 		if err := SetSetting("searchstring", g.SearchString); err != nil {
@@ -51,14 +52,7 @@ func getSettingsFilePath() (string, error) {
 		return "", errors.New("can't find appdata")
 	}
 
-	dir := filepath.Join(appData, "winfastnav")
-
-	err := os.MkdirAll(dir, 0o700)
-	if err != nil {
-		return "", fmt.Errorf("failed to create app directory: %w", err)
-	}
-
-	return filepath.Join(dir, "prefs.json"), nil
+	return filepath.Join(appData, "winfastnav", "prefs.json"), nil
 }
 
 func readSettings() (Settings, error) {
@@ -97,31 +91,7 @@ func writeSettings(s Settings) error {
 		return err
 	}
 
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".prefs-*.tmp")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-
-	enc := json.NewEncoder(temporary)
-	enc.SetIndent("", "  ")
-	if err = enc.Encode(s); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err = temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err = temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, path)
+	return storage.WriteJSON(path, s, "  ")
 }
 
 func SetSetting(key, value string) error {
@@ -131,22 +101,19 @@ func SetSetting(key, value string) error {
 func SetSettings(values Settings) error {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
-	if err := loadSettings(); err != nil {
+	loadSettings()
+	next := maps.Clone(settings)
+	maps.Copy(next, values)
+	if err := writeSettings(next); err != nil {
 		return err
 	}
-	for key, value := range values {
-		settings[key] = value
-	}
-	dirty = true
-	return flushLocked()
+	settings, dirty = next, false
+	return nil
 }
 
-func SetSettingsAsync(values Settings) error {
+func SetSettingsAsync(values Settings) {
 	settingsMu.Lock()
-	if err := loadSettings(); err != nil {
-		settingsMu.Unlock()
-		return err
-	}
+	loadSettings()
 	for key, value := range values {
 		settings[key] = value
 	}
@@ -158,7 +125,6 @@ func SetSettingsAsync(values Settings) error {
 	case writes <- struct{}{}:
 	default:
 	}
-	return nil
 }
 
 func Flush() error {
@@ -195,25 +161,22 @@ func writePendingSettings() {
 	}
 }
 
-func GetSetting(key string) (string, error) {
+func GetSetting(key string) string {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
-	if err := loadSettings(); err != nil {
-		return "", err
-	}
-	return settings[key], nil
+	loadSettings()
+	return settings[key]
 }
 
-func loadSettings() error {
+func loadSettings() {
 	if settings != nil {
-		return nil
+		return
 	}
 	loaded, err := readSettings()
 	if err != nil {
 		log.Printf("failed to read settings, starting with defaults: %v", err)
 		settings = Settings{}
-		return nil
+		return
 	}
 	settings = loaded
-	return err
 }

@@ -34,20 +34,20 @@ func Load() {
 	loadedUsage := make(map[string]int)
 	var loadedSelections []selection
 
-	stored, err := settings.GetSetting("recent")
+	stored := settings.GetSetting("recent")
 	var loaded []string
-	if err == nil && stored != "" {
+	if stored != "" {
 		_ = json.Unmarshal([]byte(stored), &loaded)
 	}
 	if len(loaded) > maxEntries {
 		loaded = loaded[:maxEntries]
 	}
 
-	if stored, err = settings.GetSetting("usage"); err == nil && stored != "" {
+	if stored = settings.GetSetting("usage"); stored != "" {
 		_ = json.Unmarshal([]byte(stored), &loadedUsage)
 	}
 
-	if stored, err = settings.GetSetting("query_selections"); err == nil && stored != "" {
+	if stored = settings.GetSetting("query_selections"); stored != "" {
 		_ = json.Unmarshal([]byte(stored), &loadedSelections)
 		if len(loadedSelections) > maxSelections {
 			loadedSelections = loadedSelections[:maxSelections]
@@ -82,7 +82,7 @@ func Record(path string) {
 	storedRecent, recentErr := json.Marshal(entries)
 	storedUsage, usageErr := json.Marshal(usage)
 	if recentErr == nil && usageErr == nil {
-		_ = settings.SetSettingsAsync(settings.Settings{
+		settings.SetSettingsAsync(settings.Settings{
 			"recent": string(storedRecent),
 			"usage":  string(storedUsage),
 		})
@@ -116,16 +116,12 @@ func RecordSelection(query, path string) {
 	selections = updated
 	stored, err := json.Marshal(selections)
 	if err == nil {
-		_ = settings.SetSettingsAsync(settings.Settings{"query_selections": string(stored)})
+		settings.SetSettingsAsync(settings.Settings{"query_selections": string(stored)})
 	}
 	mu.Unlock()
 }
 
 func MatchAndRankLimit(resources []globals.Resource, query string, limit int) []globals.Resource {
-	return matchAndRank(resources, query, limit)
-}
-
-func matchAndRank(resources []globals.Resource, query string, limit int) []globals.Resource {
 	query = normalizeQuery(query)
 	if query == "" {
 		result := rank(resources)

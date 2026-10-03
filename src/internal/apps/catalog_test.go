@@ -6,18 +6,6 @@ import (
 	g "winfastnav/internal/globals"
 )
 
-func TestSameResources(t *testing.T) {
-	left := []g.Resource{{Name: "Calculator", Filepath: `C:\Windows\System32\calc.exe`}}
-	right := append([]g.Resource(nil), left...)
-	if !sameResources(left, right) {
-		t.Fatal("identical catalogs should compare equal")
-	}
-	right[0].Name = "Different"
-	if sameResources(left, right) {
-		t.Fatal("different catalogs should not compare equal")
-	}
-}
-
 func TestFilterCachedAppsHonorsBlocklist(t *testing.T) {
 	previous := g.ExecBlocklist
 	g.ExecBlocklist = []string{`C:\Apps\hidden.exe`}

@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"golang.org/x/sys/windows/registry"
 	g "winfastnav/internal/globals"
+	"winfastnav/internal/storage"
 )
 
 const (
@@ -136,7 +138,7 @@ func refreshCatalog(fingerprint uint64) {
 	prepareResources(apps)
 
 	appListMu.Lock()
-	changed := !sameResources(g.AppList, apps)
+	changed := !slices.Equal(g.AppList, apps)
 	g.AppList = apps
 	appListMu.Unlock()
 
@@ -205,32 +207,7 @@ func saveCatalog(catalog catalogFile) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(path)
-	if err = os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	temporary, err := os.CreateTemp(dir, ".apps-*.tmp")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := json.NewEncoder(temporary).Encode(catalog); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, path)
+	return storage.WriteJSON(path, catalog, "")
 }
 
 func catalogPath() (string, error) {
@@ -296,18 +273,6 @@ func applicationSourcesFingerprint() uint64 {
 	}
 
 	return hash.Sum64()
-}
-
-func sameResources(left, right []g.Resource) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func prepareResources(resources []g.Resource) {

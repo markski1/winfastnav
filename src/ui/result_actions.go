@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"path/filepath"
+	"strings"
 
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
@@ -13,6 +14,7 @@ import (
 	"gioui.org/widget/material"
 	"winfastnav/internal/apps"
 	g "winfastnav/internal/globals"
+	"winfastnav/internal/recent"
 	"winfastnav/internal/utils"
 )
 
@@ -47,24 +49,48 @@ func actionsForResult(item g.Resource) []resultActionChoice {
 		label = "Run action"
 	}
 	choices := []resultActionChoice{{resultOpen, label, "Enter"}}
-	if !filepath.IsAbs(item.Filepath) || item.Command != nil || item.Assistant != "" || item.WebSearch != "" {
+	if item.Command != nil || item.Assistant != "" || item.WebSearch != "" {
 		return choices
 	}
-	choices = append(choices, resultActionChoice{resultReveal, "Reveal in Explorer", "Ctrl+Enter"}, resultActionChoice{resultCopy, "Copy path", "Ctrl+C"})
-	if !item.Document {
-		choices = append(choices, resultActionChoice{resultAdmin, "Run as administrator", "Shift+Enter"}, resultActionChoice{resultHide, "Hide from search", "Delete"})
+	if filepath.IsAbs(item.Filepath) {
+		choices = append(choices, resultActionChoice{resultReveal, "Reveal in Explorer", "Ctrl+Enter"})
+	}
+	if item.Filepath != "" {
+		choices = append(choices, resultActionChoice{resultCopy, "Copy path", "Ctrl+C"})
+	}
+	if !item.Document && filepath.IsAbs(item.Filepath) && strings.EqualFold(filepath.Ext(item.Filepath), ".exe") {
+		choices = append(choices, resultActionChoice{resultAdmin, "Run as administrator", "Shift+Enter"})
+	}
+	if !item.Document && item.Filepath != "" {
+		choices = append(choices, resultActionChoice{resultHide, "Hide from search", "Delete"})
 	}
 	return choices
 }
 
+func resultShortcut(event key.Event) (resultAction, bool) {
+	switch event.Name {
+	case "C":
+		if event.Modifiers.Contain(key.ModCtrl) {
+			return resultCopy, true
+		}
+	case key.NameReturn, key.NameEnter:
+		if event.Modifiers.Contain(key.ModShift) {
+			return resultAdmin, true
+		}
+		if event.Modifiers&(key.ModCtrl|key.ModAlt) != 0 {
+			return resultReveal, true
+		}
+	case key.NameDeleteForward:
+		return resultHide, true
+	}
+	return 0, false
+}
+
 func (l *launcher) openResultActions(index int) {
-	l.mu.RLock()
-	if index < 0 || index >= len(l.items) {
-		l.mu.RUnlock()
+	item, ok := l.itemAt(index)
+	if !ok {
 		return
 	}
-	item := l.items[index]
-	l.mu.RUnlock()
 	l.updateState(func(state *uiState) {
 		state.actionMenu = true
 		state.actionTarget = item
@@ -132,7 +158,12 @@ func (l *launcher) executeResultAction(gtx layout.Context, item g.Resource, acti
 		}
 		l.copyText(gtx, value)
 	case resultAdmin:
-		l.runResourceElevated(item)
+		if err := apps.RunProgramElevated(item.Filepath); err != nil {
+			l.message("The selected application cannot be run as administrator.")
+			return
+		}
+		recent.RecordSelection(l.editor.Text(), item.Filepath)
+		HideWindow()
 	case resultHide:
 		apps.BlockApplication(item)
 		l.query(l.editor.Text())
@@ -156,7 +187,7 @@ func (l *launcher) resultActionMenu(gtx layout.Context) layout.Dimensions {
 	return layout.Stack{}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			return l.actionDismiss.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return l.pageSurface(gtx, color.NRGBA{A: 50}, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: gtx.Constraints.Min} })
+				return l.surface(gtx, color.NRGBA{A: 50}, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: gtx.Constraints.Min} })
 			})
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -164,34 +195,25 @@ func (l *launcher) resultActionMenu(gtx layout.Context) layout.Dimensions {
 			content := gtx
 			content.Constraints = layout.Constraints{Min: image.Pt(width, 0), Max: image.Pt(width, gtx.Constraints.Max.Y)}
 			recording := op.Record(gtx.Ops)
-			dimensions := l.pageSurface(content, l.palette.surface, func(gtx layout.Context) layout.Dimensions {
-				return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					children := []layout.FlexChild{layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return layout.Inset{Bottom: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return l.resultText(gtx, state.actionTarget.Name, unit.Sp(12), l.palette.secondary)
-						})
-					})}
-					for index, choice := range choices {
-						children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return l.actionButtons[index].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								background := l.palette.surface
-								if l.actionButtons[index].Hovered() || gtx.Focused(&l.actionButtons[index]) {
-									background = l.palette.hover
-								}
-								return l.pageSurface(gtx, background, func(gtx layout.Context) layout.Dimensions {
-									return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-											layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return l.pageTitle(gtx, choice.label, unit.Sp(12)) }),
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions { return l.pageDescription(gtx, choice.shortcut) }),
-										)
-									})
-								})
-							})
-						}))
+			widgets := []layout.Widget{inset(layout.Inset{Bottom: unit.Dp(8)}, func(gtx layout.Context) layout.Dimensions {
+				return l.resultText(gtx, state.actionTarget.Name, unit.Sp(12), l.palette.secondary)
+			})}
+			for index, choice := range choices {
+				button := &l.actionButtons[index]
+				widgets = append(widgets, buttonWidget(button, func(gtx layout.Context) layout.Dimensions {
+					background := l.palette.surface
+					if button.Hovered() || gtx.Focused(button) {
+						background = l.palette.hover
 					}
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
-				})
-			})
+					return l.surface(gtx, background, inset(layout.UniformInset(unit.Dp(8)), func(gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+							layout.Flexed(1, l.title(choice.label, unit.Sp(12))),
+							layout.Rigid(l.description(choice.shortcut)),
+						)
+					}))
+				}))
+			}
+			dimensions := l.surface(content, l.palette.surface, inset(layout.UniformInset(unit.Dp(10)), column(0, widgets...)))
 			call := recording.Stop()
 			position := popupPosition(l.pointerPosition, dimensions.Size, gtx.Constraints.Max, gtx.Dp(10))
 			offset := op.Offset(position).Push(gtx.Ops)

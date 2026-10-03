@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"winfastnav/internal/storage"
 )
 
 const (
@@ -116,18 +117,7 @@ func saveCurrencyCache(cached currencyCache) error {
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	err = json.NewEncoder(file).Encode(cached)
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	return err
+	return storage.WriteJSON(path, cached, "")
 }
 
 func currencyCachePath() (string, error) {
